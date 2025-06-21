@@ -1,0 +1,30 @@
+
+body {
+  background-color: #000;
+  color: cyan;
+  font-family: monospace;
+  text-align: center;
+}
+.container {
+  max-width: 900px;
+  margin: auto;
+  padding-top: 20px;
+}
+button {
+  margin: 5px;
+  padding: 8px 20px;
+  font-size: 16px;
+}
+ul { list-style: none; padding: 0; }
+.painel-central {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+.coluna-esquerda, .coluna-direita {
+  flex: 1;
+  text-align: left;
+}
+.grafico {
+  margin-top: 20px;
+}

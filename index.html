@@ -1,0 +1,40 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>TX1 LITE REAL PRO v1.8.8 FINAL</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>TX1 LITE REAL PRO v1.8.8 FINAL</h1>
+    <div class="painel-central">
+      <div class="coluna-esquerda">
+        <p>Comando Atual: <span id="comando">ESPERAR</span></p>
+        <p>Score de Confiança: <span id="score">--%</span></p>
+        <p>Próxima Leitura em: <span id="timer">60</span>s</p>
+        <p>Última Análise: <span id="hora">--:--:--</span></p>
+        <div>
+          <h3>Critérios Técnicos</h3>
+          <ul id="criterios"></ul>
+        </div>
+        <div>
+          <button onclick="registrar('WIN')">WIN</button>
+          <button onclick="registrar('LOSS')">LOSS</button>
+          <p>Histórico: <span id="historico">0 WIN / 0 LOSS</span></p>
+        </div>
+      </div>
+      <div class="coluna-direita">
+        <h3>Últimos Sinais</h3>
+        <ul id="ultimos"></ul>
+      </div>
+    </div>
+    <iframe class="grafico" src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&interval=1&theme=dark"
+      width="100%" height="260" frameborder="0"></iframe>
+  </div>
+  <audio id="som-call" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto"></audio>
+  <audio id="som-put" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+  <script src="script.js"></script>
+</body>
+</html>
