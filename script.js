@@ -230,7 +230,7 @@ function calcularScore(sinal, indicadores, divergencias) {
 }
 
 // =============================================
-// FUNÇÕES UTILITÁRIAS (MANTIDAS)
+// FUNÇÕES UTILITÁRIAS
 // =============================================
 function formatarTimer(segundos) {
   return `0:${segundos.toString().padStart(2, '0')}`;
@@ -280,7 +280,7 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
 }
 
 // =============================================
-// INDICADORES TÉCNICOS (MANTIDOS)
+// INDICADORES TÉCNICOS
 // =============================================
 const calcularMedia = {
   simples: (dados, periodo) => {
@@ -515,22 +515,6 @@ function calcularVolumeProfile(dados, periodo = CONFIG.PERIODOS.VOLUME_PROFILE) 
   }
 }
 
-function detectarFairValueGap(velas) {
-  if (velas.length < 3) return { gap: false };
-  
-  const ultima = velas[velas.length - 1];
-  const penultima = velas[velas.length - 2];
-  
-  if (ultima.low > penultima.high) {
-    return { gap: true, direcao: 'ALTA', tamanho: ultima.low - penultima.high };
-  } 
-  else if (ultima.high < penultima.low) {
-    return { gap: true, direcao: 'BAIXA', tamanho: penultima.low - ultima.high };
-  }
-  
-  return { gap: false };
-}
-
 function calcularLiquidez(velas, periodo = CONFIG.PERIODOS.LIQUIDITY_ZONES) {
   const slice = velas.slice(-periodo);
   const highNodes = [];
@@ -573,21 +557,11 @@ function detectarDivergencias(closes, rsis, highs, lows) {
     const baixaRSI = ultimosRSIs[0] < ultimosRSIs[2] && ultimosRSIs[2] < ultimosRSIs[4];
     const divergenciaBaixa = altaPreco && baixaRSI;
     
-    const altaPrecoOculta = ultimosLows[0] > ultimosLows[2] && ultimosLows[2] > ultimosLows[4];
-    const baixaRSIOculta = ultimosRSIs[0] < ultimosRSIs[2] && ultimosRSIs[2] < ultimosRSIs[4];
-    const divergenciaOcultaAlta = altaPrecoOculta && baixaRSIOculta;
-    
-    const baixaPrecoOculta = ultimosHighs[0] < ultimosHighs[2] && ultimosHighs[2] < ultimosHighs[4];
-    const altaRSIOculta = ultimosRSIs[0] > ultimosRSIs[2] && ultimosRSIs[2] > ultimosRSIs[4];
-    const divergenciaOcultaBaixa = baixaPrecoOculta && altaRSIOculta;
-    
     return {
       divergenciaRSI: divergenciaAlta || divergenciaBaixa,
-      divergenciaOculta: divergenciaOcultaAlta || divergenciaOcultaBaixa,
+      divergenciaOculta: false,
       tipoDivergencia: divergenciaAlta ? "ALTA" : 
-                      divergenciaBaixa ? "BAIXA" : 
-                      divergenciaOcultaAlta ? "ALTA_OCULTA" : 
-                      divergenciaOcultaBaixa ? "BAIXA_OCULTA" : "NENHUMA"
+                      divergenciaBaixa ? "BAIXA" : "NENHUMA"
     };
   } catch (e) {
     console.error("Erro na detecção de divergências:", e);
@@ -596,11 +570,12 @@ function detectarDivergencias(closes, rsis, highs, lows) {
 }
 
 // =============================================
-// CORE DO SISTEMA ATUALIZADO
+// CORE DO SISTEMA
 // =============================================
 async function analisarMercado() {
   if (state.leituraEmAndamento || !state.marketOpen) return;
   state.leituraEmAndamento = true;
+  
   try {
     const dados = await obterDadosBinance();
     const velaAtual = dados[dados.length - 1];
@@ -623,9 +598,7 @@ async function analisarMercado() {
     
     const rsi = calcularRSI(closes);
     const stoch = calcularStochastic(highs, lows, closes);
-    const williams = calcularWilliams(highs, lows, closes);
     const macd = calcularMACD(closes);
-    const vwap = calcularVWAP(dados);
     
     const rsiHistory = [];
     for (let i = CONFIG.PERIODOS.RSI; i <= closes.length; i++) {
@@ -633,7 +606,7 @@ async function analisarMercado() {
     }
     const divergencias = detectarDivergencias(closes, rsiHistory, highs, lows);
 
-    // SISTEMA DE TENDÊNCIA SIMPLIFICADO
+    // SISTEMA DE TENDÊNCIA
     const tendencia = avaliarTendencia(closes, ema8, ema21, ema200, velaAtual.volume, volumeMedia);
     state.tendenciaDetectada = tendencia.tendencia;
     state.forcaTendencia = tendencia.forca;
@@ -641,7 +614,6 @@ async function analisarMercado() {
     const indicadores = {
       rsi,
       stoch,
-      williams,
       macd,
       emaCurta: ema8,
       emaMedia: ema21,
@@ -651,18 +623,19 @@ async function analisarMercado() {
       superTrend,
       volumeProfile,
       liquidez,
-      vwap,
       tendencia
     };
 
-    // GERADOR DE SINAIS PRECISOS
+    // GERADOR DE SINAIS
     const sinal = gerarSinal(indicadores, divergencias);
     const score = calcularScore(sinal, indicadores, divergencias);
 
+    // ATUALIZAR ESTADO
     state.ultimoSinal = sinal;
     state.ultimoScore = score;
     state.ultimaAtualizacao = new Date().toLocaleTimeString("pt-BR");
 
+    // ATUALIZAR INTERFACE
     atualizarInterface(sinal, score, state.tendenciaDetectada, state.forcaTendencia);
 
     const criteriosElement = document.getElementById("criterios");
@@ -727,26 +700,30 @@ function sincronizarTimer() {
   const agora = Date.now();
   const delayProximaVela = 60000 - (agora % 60000);
   state.timer = Math.max(1, Math.floor(delayProximaVela/1000));
+  
   const elementoTimer = document.getElementById("timer");
   if (elementoTimer) {
     elementoTimer.textContent = formatarTimer(state.timer);
-    elementoTimer.style.color = state.timer<=5?'red':'';
+    elementoTimer.style.color = state.timer <= 5 ? 'red' : '';
   }
-  state.intervaloAtual = setInterval(()=>{
+  
+  state.intervaloAtual = setInterval(() => {
     state.timer--;
+    
     if (elementoTimer) {
       elementoTimer.textContent = formatarTimer(state.timer);
-      elementoTimer.style.color = state.timer<=5?'red':'';
+      elementoTimer.style.color = state.timer <= 5 ? 'red' : '';
     }
-    if (state.timer<=0) {
+    
+    if (state.timer <= 0) {
       clearInterval(state.intervaloAtual);
       analisarMercado().finally(sincronizarTimer);
     }
-  },1000);
+  }, 1000);
 }
 
 // =============================================
-// WEBSOCKET PARA DADOS EM TEMPO REAL
+// WEBSOCKET
 // =============================================
 function iniciarWebSocket() {
   if (state.websocket) state.websocket.close();
@@ -773,16 +750,21 @@ function iniciarWebSocket() {
 function iniciarAplicativo() {
   const ids = ['comando','score','hora','timer','criterios','ultimos'];
   const falt = ids.filter(id => !document.getElementById(id));
+  
   if (falt.length > 0) {
     console.error("Elementos faltando:", falt);
     return;
   }
   
+  // Configurar atualizações periódicas
   setInterval(atualizarRelogio, 1000);
   sincronizarTimer();
   iniciarWebSocket();
-  analisarMercado();
   
+  // Primeira análise
+  setTimeout(analisarMercado, 2000);
+  
+  // Botão de backtest
   const backtestBtn = document.createElement('button');
   backtestBtn.textContent = 'Executar Backtest (5 dias)';
   backtestBtn.style.position = 'fixed';
@@ -807,5 +789,6 @@ function iniciarAplicativo() {
   document.body.appendChild(backtestBtn);
 }
 
+// Iniciar quando o documento estiver pronto
 if (document.readyState === "complete") iniciarAplicativo();
 else document.addEventListener("DOMContentLoaded", iniciarAplicativo);
