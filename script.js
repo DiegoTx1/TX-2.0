@@ -1,5 +1,5 @@
 // =============================================
-// CONFIGURAÇÕES GLOBAIS (ATUALIZADAS PARA BINANCE)
+// CONFIGURAÇÕES GLOBAIS (ATUALIZADAS PARA ALPHA VANTAGE)
 // =============================================
 const state = {
   ultimos: [],
@@ -27,13 +27,10 @@ const state = {
 
 const CONFIG = {
   API_ENDPOINTS: {
-    BINANCE: "https://api.binance.com/api/v3",
-    CRYPTORANK: "https://api.cryptorank.io/v1",
-    CRYPTOCOMPARE: "https://min-api.cryptocompare.com/data"
+    ALPHAVANTAGE: "https://www.alphavantage.co"
   },
-  WS_ENDPOINT: "wss://stream.binance.com:9443/ws/btcusdt@kline_1m",
   PARES: {
-    CRYPTO_IDX: "BTCUSDT"
+    FOREX_IDX: "GBP/NZD"
   },
   PERIODOS: {
     RSI: 14,
@@ -84,18 +81,48 @@ const CONFIG = {
 };
 
 // =============================================
-// SISTEMA DE TENDÊNCIA SIMPLIFICADO E EFICAZ
+// FUNÇÃO PARA OBTER DADOS DO ALPHA VANTAGE
+// =============================================
+async function obterDadosMercado() {
+  try {
+    const response = await fetch(
+      `${CONFIG.API_ENDPOINTS.ALPHAVANTAGE}/query?function=FX_INTRADAY&from_symbol=GBP&to_symbol=NZD&interval=1min&apikey=25CS0R2YAR5S75OC&outputsize=compact`
+    );
+
+    if (!response.ok) throw new Error("Erro na API Alpha Vantage");
+
+    const data = await response.json();
+
+    if (!data["Time Series FX (1min)"]) {
+      console.error("Dados inválidos:", data);
+      throw new Error("Resposta da API em formato desconhecido");
+    }
+
+    const dadosFormatados = Object.entries(data["Time Series FX (1min)"]).map(([time, valores]) => ({
+      time,
+      open: parseFloat(valores["1. open"]),
+      high: parseFloat(valores["2. high"]),
+      low: parseFloat(valores["3. low"]),
+      close: parseFloat(valores["4. close"]),
+      volume: 10000
+    }));
+
+    return dadosFormatados.slice(-100);
+  } catch (e) {
+    console.error("Erro ao obter dados:", e);
+    throw e;
+  }
+}
+
+// =============================================
+// SISTEMA DE TENDÊNCIA (MANTIDO ORIGINAL)
 // =============================================
 function avaliarTendencia(closes, ema8, ema21, ema200, volume, volumeMedio) {
   const ultimoClose = closes[closes.length - 1];
   
-  // Tendência de longo prazo
   const tendenciaLongoPrazo = ultimoClose > ema200 ? "ALTA" : "BAIXA";
-  
-  // Tendência de médio prazo
   const tendenciaMedioPrazo = ema8 > ema21 ? "ALTA" : "BAIXA";
   
-  // Força da tendência
   const distanciaMedia = Math.abs(ema8 - ema21);
   const forcaBase = Math.min(100, Math.round(distanciaMedia / ultimoClose * 1000));
   const forcaVolume = volume > volumeMedio * 1.5 ? 20 : 0;
@@ -103,7 +130,6 @@ function avaliarTendencia(closes, ema8, ema21, ema200, volume, volumeMedio) {
   let forcaTotal = forcaBase + forcaVolume;
   if (tendenciaLongoPrazo === tendenciaMedioPrazo) forcaTotal += 30;
   
-  // Determinar tendência final
   if (forcaTotal > 80) {
     return { 
       tendencia: tendenciaMedioPrazo === "ALTA" ? "FORTE_ALTA" : "FORTE_BAIXA",
@@ -125,7 +151,7 @@ function avaliarTendencia(closes, ema8, ema21, ema200, volume, volumeMedio) {
 }
 
 // =============================================
-// GERADOR DE SINAIS DE ALTA PRECISÃO
+// GERADOR DE SINAIS (MANTIDO ORIGINAL)
 // =============================================
 function gerarSinal(indicadores, divergencias) {
   const {
@@ -142,11 +168,9 @@ function gerarSinal(indicadores, divergencias) {
     liquidez
   } = indicadores;
   
-  // Definir níveis-chave de suporte e resistência
   state.suporteKey = Math.min(volumeProfile.vaLow, liquidez.suporte, emaMedia);
   state.resistenciaKey = Math.max(volumeProfile.vaHigh, liquidez.resistencia, emaMedia);
   
-  // 1. Sinal de tendência forte
   if (indicadores.tendencia.tendencia === "FORTE_ALTA") {
     const condicoesCompra = [
       close > emaCurta,
@@ -160,7 +184,6 @@ function gerarSinal(indicadores, divergencias) {
     }
   }
   
-  // 2. Sinal de tendência forte de baixa
   if (indicadores.tendencia.tendencia === "FORTE_BAIXA") {
     const condicoesVenda = [
       close < emaCurta,
@@ -174,7 +197,6 @@ function gerarSinal(indicadores, divergencias) {
     }
   }
   
-  // 3. Sinal de rompimento
   if (close > state.resistenciaKey && volume > volumeMedia * 2) {
     return "CALL";
   }
@@ -183,7 +205,6 @@ function gerarSinal(indicadores, divergencias) {
     return "PUT";
   }
   
-  // 4. Sinal de reversão por divergência
   if (divergencias.divergenciaRSI) {
     if (divergencias.tipoDivergencia === "ALTA" && close > state.suporteKey) {
       return "CALL";
@@ -194,7 +215,6 @@ function gerarSinal(indicadores, divergencias) {
     }
   }
   
-  // 5. Sinal de reversão por RSI extremo
   if (rsi < 30 && close > emaMedia) {
     return "CALL";
   }
@@ -207,12 +227,11 @@ function gerarSinal(indicadores, divergencias) {
 }
 
 // =============================================
-// CALCULADOR DE CONFIANÇA PRECISO
+// CALCULADOR DE CONFIANÇA (MANTIDO ORIGINAL)
 // =============================================
 function calcularScore(sinal, indicadores, divergencias) {
-  let score = 60; // Base mais alta para crypto
+  let score = 60;
   
-  // Fatores gerais
   const fatores = {
     volumeAlto: indicadores.volume > indicadores.volumeMedia * 1.5 ? 15 : 0,
     alinhamentoTendencia: sinal === "CALL" && indicadores.tendencia.tendencia.includes("ALTA") ||
@@ -222,15 +241,13 @@ function calcularScore(sinal, indicadores, divergencias) {
                   sinal === "PUT" && indicadores.close < indicadores.emaMedia ? 10 : 0
   };
   
-  // Adicionar pontos específicos
   score += Object.values(fatores).reduce((sum, val) => sum + val, 0);
   
-  // Limitar entre 0-100
   return Math.min(100, Math.max(0, score));
 }
 
 // =============================================
-// FUNÇÕES UTILITÁRIAS
+// FUNÇÕES UTILITÁRIAS (MANTIDO ORIGINAL)
 // =============================================
 function formatarTimer(segundos) {
   return `0:${segundos.toString().padStart(2, '0')}`;
@@ -280,7 +297,7 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
 }
 
 // =============================================
-// INDICADORES TÉCNICOS
+// INDICADORES TÉCNICOS (MANTIDO ORIGINAL)
 // =============================================
 const calcularMedia = {
   simples: (dados, periodo) => {
@@ -484,7 +501,7 @@ function calcularVolumeProfile(dados, periodo = CONFIG.PERIODOS.VOLUME_PROFILE) 
     
     const slice = dados.slice(-periodo);
     const buckets = {};
-    const precisao = 2;
+    const precisao = 4; // Mais casas decimais para Forex
     
     for (const vela of slice) {
       const amplitude = vela.high - vela.low;
@@ -570,14 +587,14 @@ function detectarDivergencias(closes, rsis, highs, lows) {
 }
 
 // =============================================
-// CORE DO SISTEMA
+// CORE DO SISTEMA (ATUALIZADO PARA FOREX)
 // =============================================
 async function analisarMercado() {
   if (state.leituraEmAndamento || !state.marketOpen) return;
   state.leituraEmAndamento = true;
   
   try {
-    const dados = await obterDadosBinance();
+    const dados = await obterDadosMercado();
     const velaAtual = dados[dados.length - 1];
     const closes = dados.map(v => v.close);
     const highs = dados.map(v => v.high);
@@ -606,7 +623,6 @@ async function analisarMercado() {
     }
     const divergencias = detectarDivergencias(closes, rsiHistory, highs, lows);
 
-    // SISTEMA DE TENDÊNCIA
     const tendencia = avaliarTendencia(closes, ema8, ema21, ema200, velaAtual.volume, volumeMedia);
     state.tendenciaDetectada = tendencia.tendencia;
     state.forcaTendencia = tendencia.forca;
@@ -626,31 +642,28 @@ async function analisarMercado() {
       tendencia
     };
 
-    // GERADOR DE SINAIS
     const sinal = gerarSinal(indicadores, divergencias);
     const score = calcularScore(sinal, indicadores, divergencias);
 
-    // ATUALIZAR ESTADO
     state.ultimoSinal = sinal;
     state.ultimoScore = score;
     state.ultimaAtualizacao = new Date().toLocaleTimeString("pt-BR");
 
-    // ATUALIZAR INTERFACE
     atualizarInterface(sinal, score, state.tendenciaDetectada, state.forcaTendencia);
 
     const criteriosElement = document.getElementById("criterios");
     if (criteriosElement) {
       criteriosElement.innerHTML = `
         <li>📊 Tendência: ${state.tendenciaDetectada} (${state.forcaTendencia}%)</li>
-        <li>💰 Preço: $${indicadores.close.toFixed(2)}</li>
+        <li>💰 Preço: ${indicadores.close.toFixed(5)}</li>
         <li>📉 RSI: ${rsi.toFixed(2)} ${rsi < 30 ? '🔻' : rsi > 70 ? '🔺' : ''}</li>
         <li>📊 MACD: ${macd.histograma.toFixed(6)} ${macd.histograma > 0 ? '🟢' : '🔴'}</li>
         <li>📈 Stochastic: ${stoch.k.toFixed(2)}/${stoch.d.toFixed(2)}</li>
         <li>💹 Volume: ${(indicadores.volume/1000).toFixed(1)}K vs ${(volumeMedia/1000).toFixed(1)}K</li>
-        <li>📌 Médias: EMA8 ${ema8.toFixed(2)} | EMA21 ${ema21.toFixed(2)}</li>
-        <li>📊 Suporte: ${state.suporteKey.toFixed(2)} | Resistência: ${state.resistenciaKey.toFixed(2)}</li>
+        <li>📌 Médias: EMA8 ${ema8.toFixed(5)} | EMA21 ${ema21.toFixed(5)}</li>
+        <li>📊 Suporte: ${state.suporteKey.toFixed(5)} | Resistência: ${state.resistenciaKey.toFixed(5)}</li>
         <li>⚠️ Divergência: ${divergencias.tipoDivergencia}</li>
-        <li>🚦 SuperTrend: ${superTrend.direcao > 0 ? 'ALTA' : 'BAIXA'} (${superTrend.valor.toFixed(2)})</li>
+        <li>🚦 SuperTrend: ${superTrend.direcao > 0 ? 'ALTA' : 'BAIXA'} (${superTrend.valor.toFixed(5)})</li>
       `;
     }
 
@@ -670,30 +683,7 @@ async function analisarMercado() {
 }
 
 // =============================================
-// FUNÇÕES DE DADOS
-// =============================================
-async function obterDadosBinance() {
-  try {
-    const response = await fetch(`${CONFIG.API_ENDPOINTS.BINANCE}/klines?symbol=${CONFIG.PARES.CRYPTO_IDX}&interval=1m&limit=100`);
-    if (!response.ok) throw new Error("Falha na API Binance");
-    
-    const data = await response.json();
-    return data.map(item => ({
-      time: new Date(item[0]).toISOString(),
-      open: parseFloat(item[1]),
-      high: parseFloat(item[2]),
-      low: parseFloat(item[3]),
-      close: parseFloat(item[4]),
-      volume: parseFloat(item[5])
-    }));
-  } catch (e) {
-    console.error("Erro ao obter dados da Binance:", e);
-    throw e;
-  }
-}
-
-// =============================================
-// CONTROLE DE TEMPO
+// CONTROLE DE TEMPO (MANTIDO ORIGINAL)
 // =============================================
 function sincronizarTimer() {
   clearInterval(state.intervaloAtual);
@@ -723,29 +713,7 @@ function sincronizarTimer() {
 }
 
 // =============================================
-// WEBSOCKET
-// =============================================
-function iniciarWebSocket() {
-  if (state.websocket) state.websocket.close();
-
-  state.websocket = new WebSocket(CONFIG.WS_ENDPOINT);
-
-  state.websocket.onopen = () => console.log('Conexão WebSocket estabelecida');
-  
-  state.websocket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.k && data.k.x) { // Vela fechada
-      analisarMercado();
-    }
-  };
-  
-  state.websocket.onerror = (error) => console.error('Erro WebSocket:', error);
-  
-  state.websocket.onclose = () => setTimeout(iniciarWebSocket, 5000);
-}
-
-// =============================================
-// INICIALIZAÇÃO
+// INICIALIZAÇÃO (MANTIDO ORIGINAL)
 // =============================================
 function iniciarAplicativo() {
   const ids = ['comando','score','hora','timer','criterios','ultimos'];
@@ -756,15 +724,11 @@ function iniciarAplicativo() {
     return;
   }
   
-  // Configurar atualizações periódicas
   setInterval(atualizarRelogio, 1000);
   sincronizarTimer();
-  iniciarWebSocket();
   
-  // Primeira análise
   setTimeout(analisarMercado, 2000);
   
-  // Botão de backtest
   const backtestBtn = document.createElement('button');
   backtestBtn.textContent = 'Executar Backtest (5 dias)';
   backtestBtn.style.position = 'fixed';
@@ -789,6 +753,5 @@ function iniciarAplicativo() {
   document.body.appendChild(backtestBtn);
 }
 
-// Iniciar quando o documento estiver pronto
 if (document.readyState === "complete") iniciarAplicativo();
 else document.addEventListener("DOMContentLoaded", iniciarAplicativo);
