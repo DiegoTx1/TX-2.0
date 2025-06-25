@@ -22,7 +22,9 @@ const state = {
   forcaTendencia: 0,
   dadosHistoricos: [],
   resistenciaKey: 0,
-  suporteKey: 0
+  suporteKey: 0,
+  ultimosCloses: [],
+  tendenciaCache: null
 };
 
 const CONFIG = {
@@ -66,7 +68,8 @@ const CONFIG = {
     VOLUME_ALTO: 2.0,
     VARIACAO_LATERAL: 0.8,
     VWAP_DESVIO: 0.02,
-    ATR_LIMIAR: 0.03
+    ATR_LIMIAR: 0.03,
+    ATR_MINIMO: 0.005
   },
   PESOS: {
     RSI: 1.5,
@@ -87,6 +90,11 @@ const CONFIG = {
 // SISTEMA DE TENDÊNCIA SIMPLIFICADO E EFICAZ
 // =============================================
 function avaliarTendencia(closes, ema8, ema21, ema200, volume, volumeMedio) {
+  // Verificar se os dados são iguais aos últimos processados
+  if (state.ultimosCloses && JSON.stringify(state.ultimosCloses) === JSON.stringify(closes)) {
+    return state.tendenciaCache;
+  }
+  
   const ultimoClose = closes[closes.length - 1];
   
   // Tendência de longo prazo
@@ -104,24 +112,29 @@ function avaliarTendencia(closes, ema8, ema21, ema200, volume, volumeMedio) {
   if (tendenciaLongoPrazo === tendenciaMedioPrazo) forcaTotal += 30;
   
   // Determinar tendência final
+  let resultado;
   if (forcaTotal > 80) {
-    return { 
+    resultado = { 
       tendencia: tendenciaMedioPrazo === "ALTA" ? "FORTE_ALTA" : "FORTE_BAIXA",
       forca: Math.min(100, forcaTotal)
     };
-  }
-  
-  if (forcaTotal > 50) {
-    return { 
+  } else if (forcaTotal > 50) {
+    resultado = { 
       tendencia: tendenciaMedioPrazo,
       forca: forcaTotal
     };
+  } else {
+    resultado = { 
+      tendencia: "NEUTRA", 
+      forca: 0 
+    };
   }
   
-  return { 
-    tendencia: "NEUTRA", 
-    forca: 0 
-  };
+  // Atualizar cache
+  state.ultimosCloses = [...closes];
+  state.tendenciaCache = resultado;
+  
+  return resultado;
 }
 
 // =============================================
@@ -139,8 +152,15 @@ function gerarSinal(indicadores, divergencias) {
     volumeMedia,
     superTrend,
     volumeProfile,
-    liquidez
+    liquidez,
+    dadosHistoricos
   } = indicadores;
+  
+  // Filtro de volatilidade
+  const atr = calcularATR(dadosHistoricos);
+  if (atr < CONFIG.LIMIARES.ATR_MINIMO) {
+    return "ESPERAR";
+  }
   
   // Definir níveis-chave de suporte e resistência
   state.suporteKey = Math.min(volumeProfile.vaLow, liquidez.suporte, emaMedia);
@@ -184,7 +204,7 @@ function gerarSinal(indicadores, divergencias) {
   }
   
   // 4. Sinal de reversão por divergência
-  if (divergencias.divergenciaRSI) {
+  if (divergencias.divergenciaRSI || divergencias.divergenciaMACD) {
     if (divergencias.tipoDivergencia === "ALTA" && close > state.suporteKey) {
       return "CALL";
     }
@@ -217,7 +237,7 @@ function calcularScore(sinal, indicadores, divergencias) {
     volumeAlto: indicadores.volume > indicadores.volumeMedia * 1.5 ? 15 : 0,
     alinhamentoTendencia: sinal === "CALL" && indicadores.tendencia.tendencia.includes("ALTA") ||
                           sinal === "PUT" && indicadores.tendencia.tendencia.includes("BAIXA") ? 20 : 0,
-    divergencia: divergencias.divergenciaRSI ? 15 : 0,
+    divergencia: divergencias.divergenciaRSI || divergencias.divergenciaMACD ? 15 : 0,
     posicaoMedia: sinal === "CALL" && indicadores.close > indicadores.emaMedia ? 10 : 
                   sinal === "PUT" && indicadores.close < indicadores.emaMedia ? 10 : 0
   };
@@ -246,6 +266,8 @@ function atualizarRelogio() {
       second: '2-digit'
     });
     elementoHora.textContent = state.ultimaAtualizacao;
+    
+    // Mercado crypto opera 24/7
     state.marketOpen = true;
   }
 }
@@ -484,17 +506,17 @@ function calcularVolumeProfile(dados, periodo = CONFIG.PERIODOS.VOLUME_PROFILE) 
     
     const slice = dados.slice(-periodo);
     const buckets = {};
-    const precisao = 2;
+    const precisao = 5; // Aumentado para 5 casas decimais
     
     for (const vela of slice) {
       const amplitude = vela.high - vela.low;
       if (amplitude === 0) continue;
       
-      const niveis = 10;
+      const niveis = 20; // Aumentar precisão
       const passo = amplitude / niveis;
       
       for (let i = 0; i < niveis; i++) {
-        const preco = (vela.low + i * passo).toFixed(precisao);
+        const preco = parseFloat((vela.low + i * passo).toFixed(precisao));
         buckets[preco] = (buckets[preco] || 0) + (vela.volume / niveis);
       }
     }
@@ -535,37 +557,78 @@ function calcularLiquidez(velas, periodo = CONFIG.PERIODOS.LIQUIDITY_ZONES) {
   };
 }
 
-function detectarDivergencias(closes, rsis, highs, lows) {
+function detectarDivergencias(closes, rsis, highs, lows, macdHist) {
   try {
     if (closes.length < 5 || rsis.length < 5) 
-      return { divergenciaRSI: false, tipoDivergencia: "NENHUMA", divergenciaOculta: false };
+      return { 
+        divergenciaRSI: false, 
+        divergenciaMACD: false,
+        tipoDivergencia: "NENHUMA", 
+        divergenciaOculta: false 
+      };
     
+    // Suavizar dados
     const rsiSuavizado = rsis.map((val, idx, arr) => {
+      return idx > 1 ? (val + arr[idx-1] + arr[idx-2])/3 : val;
+    });
+    
+    const macdSuavizado = macdHist.map((val, idx, arr) => {
       return idx > 1 ? (val + arr[idx-1] + arr[idx-2])/3 : val;
     });
     
     const ultimosCloses = closes.slice(-5);
     const ultimosRSIs = rsiSuavizado.slice(-5);
+    const ultimosMACDs = macdSuavizado.slice(-5);
     const ultimosHighs = highs.slice(-5);
     const ultimosLows = lows.slice(-5);
     
+    // Verificar divergência RSI
     const baixaPreco = ultimosLows[0] < ultimosLows[2] && ultimosLows[2] < ultimosLows[4];
     const altaRSI = ultimosRSIs[0] > ultimosRSIs[2] && ultimosRSIs[2] > ultimosRSIs[4];
-    const divergenciaAlta = baixaPreco && altaRSI;
+    const divergenciaAltaRSI = baixaPreco && altaRSI;
     
     const altaPreco = ultimosHighs[0] > ultimosHighs[2] && ultimosHighs[2] > ultimosHighs[4];
     const baixaRSI = ultimosRSIs[0] < ultimosRSIs[2] && ultimosRSIs[2] < ultimosRSIs[4];
-    const divergenciaBaixa = altaPreco && baixaRSI;
+    const divergenciaBaixaRSI = altaPreco && baixaRSI;
+    
+    // Verificar divergência MACD
+    const baixaPrecoMACD = ultimosLows[0] < ultimosLows[2] && ultimosLows[2] < ultimosLows[4];
+    const altaMACD = ultimosMACDs[0] > ultimosMACDs[2] && ultimosMACDs[2] > ultimosMACDs[4];
+    const divergenciaAltaMACD = baixaPrecoMACD && altaMACD;
+    
+    const altaPrecoMACD = ultimosHighs[0] > ultimosHighs[2] && ultimosHighs[2] > ultimosHighs[4];
+    const baixaMACD = ultimosMACDs[0] < ultimosMACDs[2] && ultimosMACDs[2] < ultimosMACDs[4];
+    const divergenciaBaixaMACD = altaPrecoMACD && baixaMACD;
+    
+    // Determinar tipo de divergência
+    let divergenciaRSI = false;
+    let divergenciaMACD = false;
+    let tipoDivergencia = "NENHUMA";
+    
+    if (divergenciaAltaRSI || divergenciaAltaMACD) {
+      tipoDivergencia = "ALTA";
+      divergenciaRSI = divergenciaAltaRSI;
+      divergenciaMACD = divergenciaAltaMACD;
+    } else if (divergenciaBaixaRSI || divergenciaBaixaMACD) {
+      tipoDivergencia = "BAIXA";
+      divergenciaRSI = divergenciaBaixaRSI;
+      divergenciaMACD = divergenciaBaixaMACD;
+    }
     
     return {
-      divergenciaRSI: divergenciaAlta || divergenciaBaixa,
+      divergenciaRSI,
+      divergenciaMACD,
       divergenciaOculta: false,
-      tipoDivergencia: divergenciaAlta ? "ALTA" : 
-                      divergenciaBaixa ? "BAIXA" : "NENHUMA"
+      tipoDivergencia
     };
   } catch (e) {
     console.error("Erro na detecção de divergências:", e);
-    return { divergenciaRSI: false, divergenciaOculta: false, tipoDivergencia: "NENHUMA" };
+    return { 
+      divergenciaRSI: false, 
+      divergenciaMACD: false,
+      divergenciaOculta: false, 
+      tipoDivergencia: "NENHUMA" 
+    };
   }
 }
 
@@ -578,6 +641,15 @@ async function analisarMercado() {
   
   try {
     const dados = await obterDadosBinance();
+    state.dadosHistoricos = dados;
+    
+    // Verificar dados suficientes (200 velas)
+    if (dados.length < 200) {
+      console.log("Aguardando dados históricos suficientes...");
+      atualizarInterface("AGUARDANDO", 0, "AGUARDANDO", 0);
+      return;
+    }
+    
     const velaAtual = dados[dados.length - 1];
     const closes = dados.map(v => v.close);
     const highs = dados.map(v => v.high);
@@ -601,10 +673,15 @@ async function analisarMercado() {
     const macd = calcularMACD(closes);
     
     const rsiHistory = [];
+    const macdHistory = [];
     for (let i = CONFIG.PERIODOS.RSI; i <= closes.length; i++) {
       rsiHistory.push(calcularRSI(closes.slice(0, i)));
+      const slice = closes.slice(0, i);
+      const m = calcularMACD(slice);
+      macdHistory.push(m.histograma);
     }
-    const divergencias = detectarDivergencias(closes, rsiHistory, highs, lows);
+    
+    const divergencias = detectarDivergencias(closes, rsiHistory, highs, lows, macdHistory);
 
     // SISTEMA DE TENDÊNCIA
     const tendencia = avaliarTendencia(closes, ema8, ema21, ema200, velaAtual.volume, volumeMedia);
@@ -623,7 +700,8 @@ async function analisarMercado() {
       superTrend,
       volumeProfile,
       liquidez,
-      tendencia
+      tendencia,
+      dadosHistoricos
     };
 
     // GERADOR DE SINAIS
@@ -651,6 +729,7 @@ async function analisarMercado() {
         <li>📊 Suporte: ${state.suporteKey.toFixed(2)} | Resistência: ${state.resistenciaKey.toFixed(2)}</li>
         <li>⚠️ Divergência: ${divergencias.tipoDivergencia}</li>
         <li>🚦 SuperTrend: ${superTrend.direcao > 0 ? 'ALTA' : 'BAIXA'} (${superTrend.valor.toFixed(2)})</li>
+        <li>📈 ATR: ${calcularATR(dados).toFixed(6)}</li>
       `;
     }
 
@@ -674,7 +753,7 @@ async function analisarMercado() {
 // =============================================
 async function obterDadosBinance() {
   try {
-    const response = await fetch(`${CONFIG.API_ENDPOINTS.BINANCE}/klines?symbol=${CONFIG.PARES.CRYPTO_IDX}&interval=1m&limit=100`);
+    const response = await fetch(`${CONFIG.API_ENDPOINTS.BINANCE}/klines?symbol=${CONFIG.PARES.CRYPTO_IDX}&interval=1m&limit=200`);
     if (!response.ok) throw new Error("Falha na API Binance");
     
     const data = await response.json();
@@ -745,6 +824,98 @@ function iniciarWebSocket() {
 }
 
 // =============================================
+// FUNÇÃO DE BACKTEST
+// =============================================
+async function executarBacktest(dias) {
+  try {
+    const endTime = Date.now();
+    const startTime = endTime - dias * 24 * 60 * 60 * 1000;
+    
+    const response = await fetch(
+      `${CONFIG.API_ENDPOINTS.BINANCE}/klines?` +
+      `symbol=${CONFIG.PARES.CRYPTO_IDX}&` +
+      `interval=1m&` +
+      `startTime=${startTime}&` +
+      `endTime=${endTime}&` +
+      `limit=1000`
+    );
+    
+    if (!response.ok) throw new Error("Falha ao obter dados para backtest");
+    
+    const data = await response.json();
+    const velas = data.map(item => ({
+      time: new Date(item[0]).toISOString(),
+      open: parseFloat(item[1]),
+      high: parseFloat(item[2]),
+      low: parseFloat(item[3]),
+      close: parseFloat(item[4]),
+      volume: parseFloat(item[5])
+    }));
+    
+    let acertos = 0;
+    let totalOperacoes = 0;
+    let resultado = 0;
+    
+    // Simular operações
+    for (let i = 200; i < velas.length; i++) {
+      const slice = velas.slice(i - 200, i);
+      
+      // Calcular indicadores (simplificado para backtest)
+      const closes = slice.map(v => v.close);
+      const highs = slice.map(v => v.high);
+      const lows = slice.map(v => v.low);
+      
+      const ema8 = calcularMedia.exponencial(closes, 8).pop();
+      const ema21 = calcularMedia.exponencial(closes, 21).pop();
+      const rsi = calcularRSI(closes);
+      const stoch = calcularStochastic(highs, lows, closes);
+      const macd = calcularMACD(closes);
+      
+      // Lógica simplificada de sinal
+      let sinal = "ESPERAR";
+      
+      if (ema8 > ema21 && rsi < 70 && macd.histograma > 0) {
+        sinal = "CALL";
+      } else if (ema8 < ema21 && rsi > 30 && macd.histograma < 0) {
+        sinal = "PUT";
+      }
+      
+      if (sinal !== "ESPERAR") {
+        totalOperacoes++;
+        const resultadoVela = velas[i];
+        
+        // Verificar se acertou direção
+        if ((sinal === "CALL" && resultadoVela.close > resultadoVela.open) ||
+            (sinal === "PUT" && resultadoVela.close < resultadoVela.open)) {
+          acertos++;
+          resultado++;
+        } else {
+          resultado--;
+        }
+      }
+    }
+    
+    const acuracia = totalOperacoes > 0 ? (acertos / totalOperacoes * 100).toFixed(2) : 0;
+    
+    return {
+      acuracia,
+      totalOperacoes,
+      resultado,
+      winRate: acuracia
+    };
+    
+  } catch (e) {
+    console.error("Erro no backtest:", e);
+    return {
+      acuracia: 0,
+      totalOperacoes: 0,
+      resultado: 0,
+      winRate: 0
+    };
+  }
+}
+
+// =============================================
 // INICIALIZAÇÃO
 // =============================================
 function iniciarAplicativo() {
@@ -778,12 +949,27 @@ function iniciarAplicativo() {
   backtestBtn.style.borderRadius = '5px';
   backtestBtn.style.cursor = 'pointer';
   
-  backtestBtn.onclick = () => {
+  backtestBtn.onclick = async () => {
+    const originalText = backtestBtn.textContent;
     backtestBtn.textContent = 'Calculando...';
-    setTimeout(() => {
-      backtestBtn.textContent = 'Backtest Completo';
-      setTimeout(() => backtestBtn.textContent = 'Executar Backtest (5 dias)', 3000);
-    }, 2000);
+    backtestBtn.disabled = true;
+    
+    try {
+      const resultado = await executarBacktest(5);
+      
+      alert(
+        `Backtest Completo (5 dias):\n\n` +
+        `Operações: ${resultado.totalOperacoes}\n` +
+        `Acertos: ${resultado.acuracia}%\n` +
+        `Resultado: ${resultado.resultado > 0 ? '+' : ''}${resultado.resultado}`
+      );
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao executar backtest");
+    } finally {
+      backtestBtn.textContent = originalText;
+      backtestBtn.disabled = false;
+    }
   };
   
   document.body.appendChild(backtestBtn);
