@@ -1,40 +1,132 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>TX1 LITE REAL PRO v1.8.8 FINAL</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TX1 LITE REAL PRO v2.0 - Crypto IDX</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <h1>TX1 LITE REAL PRO v1.8.8 FINAL</h1>
-    <div class="painel-central">
-      <div class="coluna-esquerda">
-        <p>Comando Atual: <span id="comando">ESPERAR</span></p>
-        <p>Score de Confiança: <span id="score">--%</span></p>
-        <p>Próxima Leitura em: <span id="timer">60</span>s</p>
-        <p>Última Análise: <span id="hora">--:--:--</span></p>
-        <div>
-          <h3>Critérios Técnicos</h3>
-          <ul id="criterios"></ul>
+    <div class="container">
+        <header>
+            <h1>TX1 LITE REAL PRO v2.0</h1>
+            <div class="subtitle">Sistema Inteligente de Trading para Crypto IDX</div>
+            <div class="status-bar">
+                <div class="status-item">
+                    <div>Status do Mercado</div>
+                    <div class="status-value">ABERTO</div>
+                </div>
+                <div class="status-item">
+                    <div>Par Ativo</div>
+                    <div class="status-value">BTC/USDT</div>
+                </div>
+                <div class="status-item">
+                    <div>Intervalo</div>
+                    <div class="status-value">1 Minuto</div>
+                </div>
+                <div class="status-item">
+                    <div>Última Atualização</div>
+                    <div class="status-value" id="hora">--:--:--</div>
+                </div>
+            </div>
+        </header>
+        
+        <div class="main-content">
+            <div class="panel">
+                <div class="panel-title">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+                    </svg>
+                    SINAL ATUAL
+                </div>
+                
+                <div class="signal-display esperar" id="comando">
+                    ESPERAR ✋
+                </div>
+                
+                <div class="panel-title">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    PRÓXIMA LEITURA EM: <span id="timer">60</span>s
+                </div>
+                
+                <div class="score-bar">
+                    <div class="score-fill" id="score-fill" style="width: 60%;"></div>
+                    <div class="score-text" id="score">Confiança: 60%</div>
+                </div>
+                
+                <div class="panel-title">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
+                    CRITÉRIOS TÉCNICOS
+                </div>
+                
+                <ul class="criteria-list" id="criterios">
+                    <li>📊 Tendência: NEUTRA (0%)</li>
+                    <li>💰 Preço: $--</li>
+                    <li>📉 RSI: --</li>
+                    <li>📊 MACD: --</li>
+                    <li>📈 Stochastic: --/--</li>
+                    <li>💹 Volume: -- vs --</li>
+                    <li>📌 Médias: EMA8 -- | EMA21 --</li>
+                    <li>📊 Suporte: -- | Resistência: --</li>
+                    <li>⚠️ Divergência: NENHUMA</li>
+                    <li>🚦 SuperTrend: -- (--)</li>
+                </ul>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-title">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                        <line x1="4" y1="22" x2="4" y2="15"></line>
+                    </svg>
+                    ÚLTIMOS SINAIS
+                </div>
+                
+                <ul class="signals-list" id="ultimos">
+                    <li class="signal-wait">--:--:-- - ESPERAR (--%)</li>
+                    <li class="signal-wait">--:--:-- - ESPERAR (--%)</li>
+                    <li class="signal-call">--:--:-- - CALL (--%)</li>
+                    <li class="signal-put">--:--:-- - PUT (--%)</li>
+                    <li class="signal-wait">--:--:-- - ESPERAR (--%)</li>
+                    <li class="signal-call">--:--:-- - CALL (--%)</li>
+                </ul>
+            </div>
+            
+            <div class="chart-container">
+                <iframe src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&interval=1&theme=dark&style=1&backgroundColor=%2310132d&locale=br&toolbar_bg=%2310132d&enable_publishing=false&hide_top_toolbar=true&hide_legend=true&save_image=false&studies=RSI@tv-basicstudies&hideideas=true" frameborder="0"></iframe>
+                <div class="chart-overlay">BTC/USDT - Gráfico em Tempo Real (Binance)</div>
+            </div>
         </div>
-        <div>
-          <button onclick="registrar('WIN')">WIN</button>
-          <button onclick="registrar('LOSS')">LOSS</button>
-          <p>Histórico: <span id="historico">0 WIN / 0 LOSS</span></p>
+        
+        <div class="controls">
+            <button class="btn btn-win" onclick="registrar('WIN')">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 11 12 14 23 3"></polyline>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                </svg>
+                WIN
+            </button>
+            <button class="btn btn-loss" onclick="registrar('LOSS')">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                LOSS
+            </button>
         </div>
-      </div>
-      <div class="coluna-direita">
-        <h3>Últimos Sinais</h3>
-        <ul id="ultimos"></ul>
-      </div>
+        
+        <div class="history">
+            Histórico: <span class="win-count">0</span> WIN / <span class="loss-count">0</span> LOSS
+        </div>
     </div>
-    <iframe class="grafico" src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&interval=1&theme=dark"
-      width="100%" height="260" frameborder="0"></iframe>
-  </div>
-  <audio id="som-call" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto"></audio>
-  <audio id="som-put" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
-  <script src="script.js"></script>
+    
+    <script src="script.js"></script>
 </body>
 </html>
