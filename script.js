@@ -280,17 +280,14 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
   const comandoElement = document.getElementById("comando");
   if (comandoElement) {
     comandoElement.textContent = sinal;
-    comandoElement.className = sinal.toLowerCase();
+    comandoElement.className = "signal-display " + sinal.toLowerCase();
     
     if (sinal === "CALL") {
         comandoElement.textContent += " 📈";
-        comandoElement.classList.add('call');
     } else if (sinal === "PUT") {
         comandoElement.textContent += " 📉";
-        comandoElement.classList.add('put');
     } else if (sinal === "ESPERAR") {
         comandoElement.textContent += " ✋";
-        comandoElement.classList.add('esperar');
     }
   }
   
@@ -309,11 +306,11 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
     }
   }
   
-  const tendenciaElement = document.getElementById("tendencia");
-  const forcaElement = document.getElementById("forca-tendencia");
-  if (tendenciaElement && forcaElement) {
-    tendenciaElement.textContent = tendencia;
-    forcaElement.textContent = `${forcaTendencia}%`;
+  const winCountElement = document.querySelector('.win-count');
+  const lossCountElement = document.querySelector('.loss-count');
+  if (winCountElement && lossCountElement) {
+    winCountElement.textContent = state.winCount;
+    lossCountElement.textContent = state.lossCount;
   }
 }
 
@@ -843,7 +840,10 @@ function iniciarWebSocket() {
   
   state.websocket.onerror = (error) => console.error('Erro WebSocket:', error);
   
-  state.websocket.onclose = () => setTimeout(iniciarWebSocket, 5000);
+  state.websocket.onclose = () => {
+    console.log('WebSocket fechado. Tentando reconectar...');
+    setTimeout(iniciarWebSocket, 5000);
+  };
 }
 
 function registrar(resultado) {
@@ -857,7 +857,8 @@ function registrar(resultado) {
   document.querySelector('.loss-count').textContent = state.lossCount;
   
   // Adicionar ao histórico
-  state.ultimos.unshift(`${new Date().toLocaleTimeString()} - ${resultado} (Manual)`);
+  const hora = new Date().toLocaleTimeString("pt-BR");
+  state.ultimos.unshift(`${hora} - ${resultado} (Manual)`);
   if (state.ultimos.length > 8) state.ultimos.pop();
   const ultimosElement = document.getElementById("ultimos");
   if (ultimosElement) {
@@ -867,6 +868,16 @@ function registrar(resultado) {
       else if (item.includes('PUT') || item.includes('LOSS')) className = 'signal-put';
       return `<li class="${className}">${item}</li>`;
     }).join("");
+  }
+}
+
+// =============================================
+// RECONEXÃO AUTOMÁTICA WEBSOCKET
+// =============================================
+function gerenciarConexaoWebSocket() {
+  if (!state.websocket || state.websocket.readyState === WebSocket.CLOSED) {
+    iniciarWebSocket();
+    console.log("Reconectando WebSocket...");
   }
 }
 
@@ -886,6 +897,9 @@ function iniciarAplicativo() {
   setInterval(atualizarRelogio, 1000);
   sincronizarTimer();
   iniciarWebSocket();
+  
+  // Verificar conexão WebSocket a cada 5 segundos
+  setInterval(gerenciarConexaoWebSocket, 5000);
   
   // Primeira análise
   setTimeout(analisarMercado, 2000);
