@@ -1,5 +1,5 @@
 // =============================================
-// CONFIGURAÇÕES GLOBAIS (REVISADAS)
+// CONFIGURAÇÕES GLOBAIS (OTIMIZADAS PARA M5)
 // =============================================
 const state = {
   ultimos: [],
@@ -35,11 +35,16 @@ const CONFIG = {
     EMA_MEDIA: 48,
     EMA_LONGA: 200,
     SMA_VOLUME: 20
+  },
+  LIMIARES: {
+    RSI_OVERBOUGHT: 72,
+    RSI_OVERSOLD: 28,
+    VOLUME_ALTO: 1.8
   }
 };
 
 // =============================================
-// SISTEMA DE TENDÊNCIA (CORRIGIDO)
+// SISTEMA DE TENDÊNCIA (SIMPLIFICADO)
 // =============================================
 function avaliarTendencia(closes, emaCurta, emaMedia, emaLonga, volume, volumeMedio) {
   if (!closes || closes.length < 10) return { tendencia: "NEUTRA", forca: 0 };
@@ -74,27 +79,45 @@ function avaliarTendencia(closes, emaCurta, emaMedia, emaLonga, volume, volumeMe
 }
 
 // =============================================
-// GERADOR DE SINAIS (SIMPLIFICADO)
+// GERADOR DE SINAIS (OTIMIZADO)
 // =============================================
 function gerarSinal(indicadores) {
   if (!indicadores || !indicadores.close) return "ESPERAR";
   
-  const { rsi, close, emaCurta, emaMedia, volume, volumeMedia } = indicadores;
+  const { rsi, close, emaCurta, emaMedia, volume, volumeMedia, tendencia } = indicadores;
   
-  // Filtro básico de volume
+  // Filtro de volume
   if (volume < volumeMedia * 0.8) return "ESPERAR";
   
-  // Sinal de compra básico
-  if (close > emaCurta && close > emaMedia && rsi < 70) {
-    return "CALL";
+  // Sinais baseados na tendência
+  if (tendencia.tendencia === "FORTE_ALTA") {
+    if (close > emaCurta && rsi < 65) return "CALL";
   }
   
-  // Sinal de venda básico
-  if (close < emaCurta && close < emaMedia && rsi > 30) {
-    return "PUT";
+  if (tendencia.tendencia === "FORTE_BAIXA") {
+    if (close < emaCurta && rsi > 35) return "PUT";
   }
+  
+  // Sinais de reversão
+  if (rsi < 28 && close > emaMedia) return "CALL";
+  if (rsi > 72 && close < emaMedia) return "PUT";
   
   return "ESPERAR";
+}
+
+// =============================================
+// CALCULADOR DE CONFIANÇA
+// =============================================
+function calcularScore(sinal, indicadores) {
+  let score = 60;
+  
+  if (sinal === "CALL" && indicadores.tendencia.tendencia.includes("ALTA")) score += 20;
+  if (sinal === "PUT" && indicadores.tendencia.tendencia.includes("BAIXA")) score += 20;
+  if (indicadores.volume > indicadores.volumeMedia * 1.5) score += 15;
+  if (sinal === "CALL" && indicadores.rsi < 35) score += 10;
+  if (sinal === "PUT" && indicadores.rsi > 65) score += 10;
+  
+  return Math.min(100, Math.max(0, score));
 }
 
 // =============================================
@@ -106,21 +129,49 @@ function formatarTimer(segundos) {
   return `${min}:${seg.toString().padStart(2, '0')}`;
 }
 
+function atualizarRelogio() {
+  const elementoHora = document.getElementById("hora");
+  if (elementoHora) {
+    const now = new Date();
+    state.ultimaAtualizacao = now.toLocaleTimeString("pt-BR", {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    elementoHora.textContent = state.ultimaAtualizacao;
+  }
+}
+
 function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
   const comandoElement = document.getElementById("comando");
   if (comandoElement) {
     comandoElement.textContent = sinal;
     comandoElement.className = "signal-display " + sinal.toLowerCase();
+    
+    if (sinal === "CALL") comandoElement.textContent += " 📈";
+    else if (sinal === "PUT") comandoElement.textContent += " 📉";
+    else if (sinal === "ESPERAR") comandoElement.textContent += " ✋";
   }
   
   const scoreElement = document.getElementById("score");
   if (scoreElement) {
     scoreElement.textContent = `Confiança: ${score}%`;
   }
+  
+  // Atualizar histórico de sinais
+  const ultimosElement = document.getElementById("ultimos");
+  if (ultimosElement && state.ultimos.length > 0) {
+    ultimosElement.innerHTML = state.ultimos.map(item => {
+      let className = 'signal-wait';
+      if (item.includes('CALL')) className = 'signal-call';
+      else if (item.includes('PUT')) className = 'signal-put';
+      return `<li class="${className}">${item}</li>`;
+    }).join("");
+  }
 }
 
 // =============================================
-// INDICADORES TÉCNICOS (REVISADOS)
+// INDICADORES TÉCNICOS
 // =============================================
 function calcularMediaSimples(dados, periodo) {
   if (!dados || dados.length < periodo) return 0;
@@ -158,7 +209,7 @@ function calcularRSI(closes, periodo = 14) {
 }
 
 // =============================================
-// CORE DO SISTEMA (REVISADO)
+// CORE DO SISTEMA
 // =============================================
 async function analisarMercado() {
   if (state.leituraEmAndamento) return;
@@ -175,14 +226,14 @@ async function analisarMercado() {
     const closes = dados.map(v => v.close);
     const volumes = dados.map(v => v.volume);
     
-    // Indicadores básicos
+    // Calculando indicadores
     const ema13 = calcularEMA(closes, 13);
     const ema48 = calcularEMA(closes, 48);
     const ema200 = calcularEMA(closes, 200);
     const rsi = calcularRSI(closes);
     const volumeMedia = calcularMediaSimples(volumes, 20);
     
-    // Tendência
+    // Avaliando tendência
     const tendencia = avaliarTendencia(
       closes, 
       ema13, 
@@ -198,17 +249,23 @@ async function analisarMercado() {
       emaCurta: ema13,
       emaMedia: ema48,
       volume: velaAtual.volume,
-      volumeMedia
+      volumeMedia,
+      tendencia
     };
 
     // Gerar sinal
     const sinal = gerarSinal(indicadores);
-    const score = 60; // Valor fixo inicial
+    const score = calcularScore(sinal, indicadores);
     
     // Atualizar estado
     state.ultimoSinal = sinal;
     state.ultimoScore = score;
     state.ultimaAtualizacao = new Date().toLocaleTimeString("pt-BR");
+    
+    // Atualizar histórico
+    const entrada = `${state.ultimaAtualizacao} - ${sinal} (${score}%)`;
+    state.ultimos.unshift(entrada);
+    if (state.ultimos.length > 8) state.ultimos.pop();
     
     // Atualizar interface
     atualizarInterface(sinal, score, tendencia.tendencia, tendencia.forca);
@@ -221,6 +278,8 @@ async function analisarMercado() {
         <li>Preço: $${indicadores.close.toFixed(2)}</li>
         <li>RSI: ${rsi.toFixed(2)}</li>
         <li>Volume: ${(indicadores.volume/1000).toFixed(1)}K</li>
+        <li>EMA13: ${ema13.toFixed(2)}</li>
+        <li>EMA48: ${ema48.toFixed(2)}</li>
       `;
     }
 
@@ -228,13 +287,18 @@ async function analisarMercado() {
   } catch (e) {
     console.error("Erro na análise:", e);
     atualizarInterface("ERRO", 0, "ERRO", 0);
+    
+    // Adicionar erro ao histórico
+    const erroEntry = `${new Date().toLocaleTimeString("pt-BR")} - ERRO (0%)`;
+    state.ultimos.unshift(erroEntry);
+    if (state.ultimos.length > 8) state.ultimos.pop();
   } finally {
     state.leituraEmAndamento = false;
   }
 }
 
 // =============================================
-// FUNÇÕES DE DADOS (CORRIGIDAS)
+// OBTENÇÃO DE DADOS DA BINANCE
 // =============================================
 async function obterDadosBinance() {
   try {
@@ -242,7 +306,7 @@ async function obterDadosBinance() {
       `${CONFIG.API_ENDPOINTS.BINANCE}/klines?symbol=BTCUSDT&interval=5m&limit=50`
     );
     
-    if (!response.ok) throw new Error("API error: " + response.status);
+    if (!response.ok) throw new Error("Erro API: " + response.status);
     
     const data = await response.json();
     return data.map(item => ({
@@ -260,7 +324,7 @@ async function obterDadosBinance() {
 }
 
 // =============================================
-// CONTROLE DE TEMPO (ESTÁVEL)
+// CONTROLE DE TEMPO
 // =============================================
 function sincronizarTimer() {
   clearInterval(state.intervaloAtual);
@@ -272,11 +336,17 @@ function sincronizarTimer() {
   const elementoTimer = document.getElementById("timer");
   if (elementoTimer) {
     elementoTimer.textContent = formatarTimer(state.timer);
+    elementoTimer.style.color = state.timer <= 30 ? 'red' : '';
   }
   
   state.intervaloAtual = setInterval(() => {
     state.timer--;
-    if (elementoTimer) elementoTimer.textContent = formatarTimer(state.timer);
+    
+    if (elementoTimer) {
+      elementoTimer.textContent = formatarTimer(state.timer);
+      elementoTimer.style.color = state.timer <= 30 ? 'red' : '';
+    }
+    
     if (state.timer <= 0) {
       clearInterval(state.intervaloAtual);
       analisarMercado();
@@ -286,11 +356,64 @@ function sincronizarTimer() {
 }
 
 // =============================================
-// INICIALIZAÇÃO DO SISTEMA (CONFIÁVEL)
+// WEBSOCKET PARA ATUALIZAÇÕES EM TEMPO REAL
+// =============================================
+function iniciarWebSocket() {
+  if (state.websocket) state.websocket.close();
+
+  state.websocket = new WebSocket(CONFIG.WS_ENDPOINT);
+
+  state.websocket.onopen = () => console.log('WebSocket conectado');
+  
+  state.websocket.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.k && data.k.x) { // Vela fechada
+      analisarMercado();
+    }
+  };
+  
+  state.websocket.onerror = (error) => console.error('Erro WebSocket:', error);
+  
+  state.websocket.onclose = () => {
+    console.log('WebSocket fechado. Reconectando...');
+    setTimeout(iniciarWebSocket, 5000);
+  };
+}
+
+// =============================================
+// REGISTRO MANUAL DE OPERAÇÕES
+// =============================================
+function registrar(resultado) {
+  if (resultado === 'WIN') state.winCount++;
+  else if (resultado === 'LOSS') state.lossCount++;
+  
+  document.querySelector('.win-count').textContent = state.winCount;
+  document.querySelector('.loss-count').textContent = state.lossCount;
+  
+  const hora = new Date().toLocaleTimeString("pt-BR");
+  const entradaManual = `${hora} - ${resultado} (Manual)`;
+  
+  state.ultimos.unshift(entradaManual);
+  if (state.ultimos.length > 8) state.ultimos.pop();
+  
+  // Atualizar histórico
+  const ultimosElement = document.getElementById("ultimos");
+  if (ultimosElement) {
+    ultimosElement.innerHTML = state.ultimos.map(item => {
+      let className = 'signal-wait';
+      if (item.includes('WIN')) className = 'signal-call';
+      else if (item.includes('LOSS')) className = 'signal-put';
+      return `<li class="${className}">${item}</li>`;
+    }).join("");
+  }
+}
+
+// =============================================
+// INICIALIZAÇÃO DO SISTEMA
 // =============================================
 function iniciarAplicativo() {
-  // Verificar elementos mínimos
-  const elementosRequeridos = ['comando', 'score', 'timer'];
+  // Elementos essenciais
+  const elementosRequeridos = ['comando', 'score', 'hora', 'timer', 'criterios', 'ultimos'];
   const elementosFaltantes = elementosRequeridos.filter(id => !document.getElementById(id));
   
   if (elementosFaltantes.length > 0) {
@@ -298,15 +421,25 @@ function iniciarAplicativo() {
     return;
   }
   
-  // Configurações iniciais
-  setInterval(() => {
-    const agora = new Date();
-    document.getElementById("hora").textContent = agora.toLocaleTimeString("pt-BR");
-  }, 1000);
+  // Inicializar histórico
+  state.ultimos = [
+    "--:--:-- - ESPERAR (--%)",
+    "--:--:-- - ESPERAR (--%)",
+    "--:--:-- - ESPERAR (--%)",
+    "--:--:-- - ESPERAR (--%)",
+    "--:--:-- - ESPERAR (--%)",
+    "--:--:-- - ESPERAR (--%)"
+  ];
   
+  // Atualizar interface inicial
+  atualizarInterface("AGUARDANDO", 0, "NEUTRA", 0);
+  
+  // Configurar atualizações
+  setInterval(atualizarRelogio, 1000);
   sincronizarTimer();
+  iniciarWebSocket();
   
-  // Primeira análise após 2 segundos
+  // Primeira análise
   setTimeout(analisarMercado, 2000);
   
   // Atualizar display do intervalo
