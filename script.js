@@ -24,7 +24,9 @@ const state = {
   resistenciaKey: 0,
   suporteKey: 0,
   ultimosCloses: [],
-  tendenciaCache: null
+  tendenciaCache: null,
+  winCount: 0,
+  lossCount: 0
 };
 
 const CONFIG = {
@@ -280,17 +282,31 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
     comandoElement.textContent = sinal;
     comandoElement.className = sinal.toLowerCase();
     
-    if (sinal === "CALL") comandoElement.textContent += " 📈";
-    else if (sinal === "PUT") comandoElement.textContent += " 📉";
-    else if (sinal === "ESPERAR") comandoElement.textContent += " ✋";
+    if (sinal === "CALL") {
+        comandoElement.textContent += " 📈";
+        comandoElement.classList.add('call');
+    } else if (sinal === "PUT") {
+        comandoElement.textContent += " 📉";
+        comandoElement.classList.add('put');
+    } else if (sinal === "ESPERAR") {
+        comandoElement.textContent += " ✋";
+        comandoElement.classList.add('esperar');
+    }
   }
   
   const scoreElement = document.getElementById("score");
-  if (scoreElement) {
+  const scoreFill = document.getElementById("score-fill");
+  if (scoreElement && scoreFill) {
     scoreElement.textContent = `Confiança: ${score}%`;
-    if (score >= CONFIG.LIMIARES.SCORE_ALTO) scoreElement.style.color = '#00ff00';
-    else if (score >= CONFIG.LIMIARES.SCORE_MEDIO) scoreElement.style.color = '#ffff00';
-    else scoreElement.style.color = '#ff0000';
+    scoreFill.style.width = `${score}%`;
+    
+    if (score >= CONFIG.LIMIARES.SCORE_ALTO) {
+        scoreFill.style.background = 'linear-gradient(90deg, #4caf50, #2e7d32)';
+    } else if (score >= CONFIG.LIMIARES.SCORE_MEDIO) {
+        scoreFill.style.background = 'linear-gradient(90deg, #ff9800, #ff5722)';
+    } else {
+        scoreFill.style.background = 'linear-gradient(90deg, #f44336, #c62828)';
+    }
   }
   
   const tendenciaElement = document.getElementById("tendencia");
@@ -736,7 +752,14 @@ async function analisarMercado() {
     state.ultimos.unshift(`${state.ultimaAtualizacao} - ${sinal} (${score}%)`);
     if (state.ultimos.length > 8) state.ultimos.pop();
     const ultimosElement = document.getElementById("ultimos");
-    if (ultimosElement) ultimosElement.innerHTML = state.ultimos.map(i => `<li>${i}</li>`).join("");
+    if (ultimosElement) {
+      ultimosElement.innerHTML = state.ultimos.map(item => {
+        let className = 'signal-wait';
+        if (item.includes('CALL')) className = 'signal-call';
+        else if (item.includes('PUT')) className = 'signal-put';
+        return `<li class="${className}">${item}</li>`;
+      }).join("");
+    }
 
     state.tentativasErro = 0;
   } catch (e) {
@@ -823,95 +846,27 @@ function iniciarWebSocket() {
   state.websocket.onclose = () => setTimeout(iniciarWebSocket, 5000);
 }
 
-// =============================================
-// FUNÇÃO DE BACKTEST
-// =============================================
-async function executarBacktest(dias) {
-  try {
-    const endTime = Date.now();
-    const startTime = endTime - dias * 24 * 60 * 60 * 1000;
-    
-    const response = await fetch(
-      `${CONFIG.API_ENDPOINTS.BINANCE}/klines?` +
-      `symbol=${CONFIG.PARES.CRYPTO_IDX}&` +
-      `interval=1m&` +
-      `startTime=${startTime}&` +
-      `endTime=${endTime}&` +
-      `limit=1000`
-    );
-    
-    if (!response.ok) throw new Error("Falha ao obter dados para backtest");
-    
-    const data = await response.json();
-    const velas = data.map(item => ({
-      time: new Date(item[0]).toISOString(),
-      open: parseFloat(item[1]),
-      high: parseFloat(item[2]),
-      low: parseFloat(item[3]),
-      close: parseFloat(item[4]),
-      volume: parseFloat(item[5])
-    }));
-    
-    let acertos = 0;
-    let totalOperacoes = 0;
-    let resultado = 0;
-    
-    // Simular operações
-    for (let i = 200; i < velas.length; i++) {
-      const slice = velas.slice(i - 200, i);
-      
-      // Calcular indicadores (simplificado para backtest)
-      const closes = slice.map(v => v.close);
-      const highs = slice.map(v => v.high);
-      const lows = slice.map(v => v.low);
-      
-      const ema8 = calcularMedia.exponencial(closes, 8).pop();
-      const ema21 = calcularMedia.exponencial(closes, 21).pop();
-      const rsi = calcularRSI(closes);
-      const stoch = calcularStochastic(highs, lows, closes);
-      const macd = calcularMACD(closes);
-      
-      // Lógica simplificada de sinal
-      let sinal = "ESPERAR";
-      
-      if (ema8 > ema21 && rsi < 70 && macd.histograma > 0) {
-        sinal = "CALL";
-      } else if (ema8 < ema21 && rsi > 30 && macd.histograma < 0) {
-        sinal = "PUT";
-      }
-      
-      if (sinal !== "ESPERAR") {
-        totalOperacoes++;
-        const resultadoVela = velas[i];
-        
-        // Verificar se acertou direção
-        if ((sinal === "CALL" && resultadoVela.close > resultadoVela.open) ||
-            (sinal === "PUT" && resultadoVela.close < resultadoVela.open)) {
-          acertos++;
-          resultado++;
-        } else {
-          resultado--;
-        }
-      }
-    }
-    
-    const acuracia = totalOperacoes > 0 ? (acertos / totalOperacoes * 100).toFixed(2) : 0;
-    
-    return {
-      acuracia,
-      totalOperacoes,
-      resultado,
-      winRate: acuracia
-    };
-    
-  } catch (e) {
-    console.error("Erro no backtest:", e);
-    return {
-      acuracia: 0,
-      totalOperacoes: 0,
-      resultado: 0,
-      winRate: 0
-    };
+function registrar(resultado) {
+  if (resultado === 'WIN') {
+    state.winCount++;
+  } else if (resultado === 'LOSS') {
+    state.lossCount++;
+  }
+  
+  document.querySelector('.win-count').textContent = state.winCount;
+  document.querySelector('.loss-count').textContent = state.lossCount;
+  
+  // Adicionar ao histórico
+  state.ultimos.unshift(`${new Date().toLocaleTimeString()} - ${resultado} (Manual)`);
+  if (state.ultimos.length > 8) state.ultimos.pop();
+  const ultimosElement = document.getElementById("ultimos");
+  if (ultimosElement) {
+    ultimosElement.innerHTML = state.ultimos.map(item => {
+      let className = 'signal-wait';
+      if (item.includes('CALL') || item.includes('WIN')) className = 'signal-call';
+      else if (item.includes('PUT') || item.includes('LOSS')) className = 'signal-put';
+      return `<li class="${className}">${item}</li>`;
+    }).join("");
   }
 }
 
@@ -934,45 +889,6 @@ function iniciarAplicativo() {
   
   // Primeira análise
   setTimeout(analisarMercado, 2000);
-  
-  // Botão de backtest
-  const backtestBtn = document.createElement('button');
-  backtestBtn.textContent = 'Executar Backtest (5 dias)';
-  backtestBtn.style.position = 'fixed';
-  backtestBtn.style.bottom = '10px';
-  backtestBtn.style.right = '10px';
-  backtestBtn.style.zIndex = '1000';
-  backtestBtn.style.padding = '10px';
-  backtestBtn.style.backgroundColor = '#2c3e50';
-  backtestBtn.style.color = 'white';
-  backtestBtn.style.border = 'none';
-  backtestBtn.style.borderRadius = '5px';
-  backtestBtn.style.cursor = 'pointer';
-  
-  backtestBtn.onclick = async () => {
-    const originalText = backtestBtn.textContent;
-    backtestBtn.textContent = 'Calculando...';
-    backtestBtn.disabled = true;
-    
-    try {
-      const resultado = await executarBacktest(5);
-      
-      alert(
-        `Backtest Completo (5 dias):\n\n` +
-        `Operações: ${resultado.totalOperacoes}\n` +
-        `Acertos: ${resultado.acuracia}%\n` +
-        `Resultado: ${resultado.resultado > 0 ? '+' : ''}${resultado.resultado}`
-      );
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao executar backtest");
-    } finally {
-      backtestBtn.textContent = originalText;
-      backtestBtn.disabled = false;
-    }
-  };
-  
-  document.body.appendChild(backtestBtn);
 }
 
 // Iniciar quando o documento estiver pronto
