@@ -60,12 +60,13 @@ function avaliarTendencia(closes, emaCurta, emaMedia, emaLonga, volume, volumeMe
   let forcaTotal = forcaBase + forcaVolume;
   if (tendenciaLongoPrazo === tendenciaMedioPrazo) forcaTotal += 30;
   
-  if (forcaTotal > 80) {
+  // Condição relaxada para tendência forte
+  if (forcaTotal > 60) {
     return { 
       tendencia: tendenciaMedioPrazo === "ALTA" ? "FORTE_ALTA" : "FORTE_BAIXA",
       forca: Math.min(100, forcaTotal)
     };
-  } else if (forcaTotal > 50) {
+  } else if (forcaTotal > 40) {
     return { 
       tendencia: tendenciaMedioPrazo,
       forca: forcaTotal
@@ -84,23 +85,87 @@ function avaliarTendencia(closes, emaCurta, emaMedia, emaLonga, volume, volumeMe
 function gerarSinal(indicadores) {
   if (!indicadores || !indicadores.close) return "ESPERAR";
   
-  const { rsi, close, emaCurta, emaMedia, volume, volumeMedia, tendencia } = indicadores;
+  const { rsi, close, emaCurta, emaMedia, volume, volumeMedia, tendencia, dadosHistoricos } = indicadores;
   
-  // Filtro de volume
-  if (volume < volumeMedia * 0.8) return "ESPERAR";
+  // Filtro de volume ajustado
+  if (volume < volumeMedia * 0.6) {
+    console.log("Volume abaixo do mínimo: " + volume + " < " + (volumeMedia * 0.6));
+    return "ESPERAR";
+  }
   
-  // Sinais baseados na tendência
+  // 1. Cruzamento de EMAs (novo critério)
+  if (emaCurta > emaMedia && close > emaCurta) {
+    console.log("Sinal CALL por cruzamento de EMA");
+    return "CALL";
+  }
+  if (emaCurta < emaMedia && close < emaCurta) {
+    console.log("Sinal PUT por cruzamento de EMA");
+    return "PUT";
+  }
+  
+  // 2. Condições de tendência
   if (tendencia.tendencia === "FORTE_ALTA") {
-    if (close > emaCurta && rsi < 65) return "CALL";
+    if (close > emaCurta && rsi < 65) {
+      console.log("Sinal CALL por tendência de alta");
+      return "CALL";
+    }
   }
   
   if (tendencia.tendencia === "FORTE_BAIXA") {
-    if (close < emaCurta && rsi > 35) return "PUT";
+    if (close < emaCurta && rsi > 35) {
+      console.log("Sinal PUT por tendência de baixa");
+      return "PUT";
+    }
   }
   
-  // Sinais de reversão
-  if (rsi < 28 && close > emaMedia) return "CALL";
-  if (rsi > 72 && close < emaMedia) return "PUT";
+  // 3. Reversão com RSI ajustado
+  if (rsi < 32 && close > emaMedia) {
+    console.log("Sinal CALL por RSI oversold");
+    return "CALL";
+  }
+  if (rsi > 68 && close < emaMedia) {
+    console.log("Sinal PUT por RSI overbought");
+    return "PUT";
+  }
+  
+  // 4. Rompimento de suporte/resistência (novo critério)
+  const ultimos20 = dadosHistoricos.slice(-20);
+  const highs = ultimos20.map(v => v.high);
+  const lows = ultimos20.map(v => v.low);
+  const resistencia = Math.max(...highs);
+  const suporte = Math.min(...lows);
+  
+  if (close > resistencia) {
+    console.log("Sinal CALL por rompimento de resistência");
+    return "CALL";
+  }
+  if (close < suporte) {
+    console.log("Sinal PUT por rompimento de suporte");
+    return "PUT";
+  }
+  
+  // 5. Padrão de vela de reversão (novo critério)
+  const velaAtual = dadosHistoricos[dadosHistoricos.length - 1];
+  const range = velaAtual.high - velaAtual.low;
+  const corpo = Math.abs(velaAtual.open - velaAtual.close);
+  const sombraSuperior = velaAtual.high - Math.max(velaAtual.open, velaAtual.close);
+  const sombraInferior = Math.min(velaAtual.open, velaAtual.close) - velaAtual.low;
+  
+  // Hammer
+  if (corpo < range * 0.3 && sombraInferior >= 2 * corpo && sombraSuperior < corpo) {
+    if (velaAtual.close > velaAtual.open) {
+      console.log("Sinal CALL por padrão Hammer");
+      return "CALL";
+    }
+  }
+  
+  // Inverted Hammer
+  if (corpo < range * 0.3 && sombraSuperior >= 2 * corpo && sombraInferior < corpo) {
+    if (velaAtual.close > velaAtual.open) {
+      console.log("Sinal CALL por padrão Inverted Hammer");
+      return "CALL";
+    }
+  }
   
   return "ESPERAR";
 }
@@ -250,7 +315,8 @@ async function analisarMercado() {
       emaMedia: ema48,
       volume: velaAtual.volume,
       volumeMedia,
-      tendencia
+      tendencia,
+      dadosHistoricos: dados
     };
 
     // Gerar sinal
