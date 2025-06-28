@@ -1,9 +1,9 @@
 // =============================================
-// CONFIGURAÇÕES GLOBAIS (OTIMIZADAS PARA M5)
+// CONFIGURAÇÕES GLOBAIS (OTIMIZADAS PARA M1)
 // =============================================
 const state = {
   ultimos: [],
-  timer: 299,
+  timer: 59, // Timer regressivo de 59 segundos para M1
   ultimaAtualizacao: "",
   leituraEmAndamento: false,
   intervaloAtual: null,
@@ -12,61 +12,66 @@ const state = {
   ultimoScore: 0,
   websocket: null,
   marketOpen: true,
-  dadosHistoricos: [],
-  resistenciaKey: 0,
-  suporteKey: 0,
-  ultimosCloses: [],
-  tendenciaCache: null,
+  dadosHistoricos: {m1: [], m5: [], m15: []},
   winCount: 0,
-  lossCount: 0
+  lossCount: 0,
+  tendenciaCache: {m1: null, m5: null, m15: null},
+  rsiCache: {m1: null, m5: null, m15: null} // Novo cache para valores anteriores de RSI
 };
 
 const CONFIG = {
   API_ENDPOINTS: {
     BINANCE: "https://api.binance.com/api/v3"
   },
-  WS_ENDPOINT: "wss://stream.binance.com:9443/ws/btcusdt@kline_5m",
+  WS_ENDPOINT: "wss://stream.binance.com:9443/ws/btcusdt@kline_1m",
   PARES: {
     CRYPTO_IDX: "BTCUSDT"
   },
   PERIODOS: {
     RSI: 14,
-    EMA_CURTA: 13,
-    EMA_MEDIA: 48,
-    EMA_LONGA: 200,
+    EMA_CURTA: 9,  // Reduzido para melhor resposta em M1
+    EMA_MEDIA: 21, // Ajustado para melhor captura de tendências
+    EMA_LONGA: 50, // Reduzido para timeframe menor
     SMA_VOLUME: 20
   },
   LIMIARES: {
-    RSI_OVERBOUGHT: 72,
-    RSI_OVERSOLD: 28,
-    VOLUME_ALTO: 1.8
+    RSI_OVERBOUGHT: 70,
+    RSI_OVERSOLD: 30,
+    VOLUME_ALTO: 1.8,
+    CONFIRMACAO_TIMEFRAME: 2,
+    SCORE_MINIMO: 65 // Confiança mínima para emitir sinal
   }
 };
 
 // =============================================
-// SISTEMA DE TENDÊNCIA (SIMPLIFICADO)
+// SISTEMA DE TENDÊNCIA (OTIMIZADO PARA MULTI-TIMEFRAME)
 // =============================================
 function avaliarTendencia(closes, emaCurta, emaMedia, emaLonga, volume, volumeMedio) {
   if (!closes || closes.length < 10) return { tendencia: "NEUTRA", forca: 0 };
   
   const ultimoClose = closes[closes.length - 1];
+  const penultimoClose = closes[closes.length - 2];
+  const direcao = ultimoClose > penultimoClose ? 1 : -1;
+  
   const tendenciaLongoPrazo = ultimoClose > emaLonga ? "ALTA" : "BAIXA";
   const tendenciaMedioPrazo = emaCurta > emaMedia ? "ALTA" : "BAIXA";
   
   const distanciaMedia = Math.abs(emaCurta - emaMedia);
-  const forcaBase = Math.min(100, Math.round(distanciaMedia / ultimoClose * 1000));
-  const forcaVolume = volume > volumeMedio * 1.5 ? 20 : 0;
+  const forcaBase = Math.min(100, Math.round(distanciaMedia / ultimoClose * 1500));
+  const forcaVolume = volume > volumeMedio * 1.5 ? 25 : 0;
+  const forcaDirecao = direcao * 10;
   
-  let forcaTotal = forcaBase + forcaVolume;
-  if (tendenciaLongoPrazo === tendenciaMedioPrazo) forcaTotal += 30;
+  let forcaTotal = forcaBase + forcaVolume + forcaDirecao;
   
-  // Condição relaxada para tendência forte
-  if (forcaTotal > 60) {
+  if (tendenciaLongoPrazo === tendenciaMedioPrazo) forcaTotal += 35;
+  
+  // Condição para tendência forte
+  if (forcaTotal > 75) {
     return { 
       tendencia: tendenciaMedioPrazo === "ALTA" ? "FORTE_ALTA" : "FORTE_BAIXA",
       forca: Math.min(100, forcaTotal)
     };
-  } else if (forcaTotal > 40) {
+  } else if (forcaTotal > 45) {
     return { 
       tendencia: tendenciaMedioPrazo,
       forca: forcaTotal
@@ -80,107 +85,133 @@ function avaliarTendencia(closes, emaCurta, emaMedia, emaLonga, volume, volumeMe
 }
 
 // =============================================
-// GERADOR DE SINAIS (OTIMIZADO)
+// GERADOR DE SINAIS COM CONFIRMAÇÃO EM MÚLTIPLOS TIMEFRAMES
 // =============================================
-function gerarSinal(indicadores) {
-  if (!indicadores || !indicadores.close) return "ESPERAR";
+function gerarSinal(analises) {
+  const {m1, m5, m15} = analises;
   
-  const { rsi, close, emaCurta, emaMedia, volume, volumeMedia, tendencia, dadosHistoricos } = indicadores;
-  
-  // Filtro de volume ajustado
-  if (volume < volumeMedia * 0.6) {
-    console.log("Volume abaixo do mínimo: " + volume + " < " + (volumeMedia * 0.6));
+  // 1. Filtro de volume mínimo
+  if (m1.volume < m1.volumeMedia * 0.7) {
+    console.log("Volume M1 abaixo do mínimo: " + m1.volume + " < " + (m1.volumeMedia * 0.7));
     return "ESPERAR";
   }
+
+  // 2. Tendência consistente em múltiplos timeframes
+  const tendenciasAlta = [
+    m1.tendencia.tendencia.includes("ALTA"),
+    m5.tendencia.tendencia.includes("ALTA"),
+    m15.tendencia.tendencia.includes("ALTA")
+  ].filter(Boolean).length;
   
-  // 1. Cruzamento de EMAs (novo critério)
-  if (emaCurta > emaMedia && close > emaCurta) {
-    console.log("Sinal CALL por cruzamento de EMA");
-    return "CALL";
-  }
-  if (emaCurta < emaMedia && close < emaCurta) {
-    console.log("Sinal PUT por cruzamento de EMA");
-    return "PUT";
-  }
-  
-  // 2. Condições de tendência
-  if (tendencia.tendencia === "FORTE_ALTA") {
-    if (close > emaCurta && rsi < 65) {
-      console.log("Sinal CALL por tendência de alta");
+  const tendenciasBaixa = [
+    m1.tendencia.tendencia.includes("BAIXA"),
+    m5.tendencia.tendencia.includes("BAIXA"),
+    m15.tendencia.tendencia.includes("BAIXA")
+  ].filter(Boolean).length;
+
+  // 3. Sinais de alta com confirmação
+  if (tendenciasAlta >= CONFIG.LIMIARES.CONFIRMACAO_TIMEFRAME) {
+    // Confirmação de rompimento
+    const resistenciaM1 = Math.max(...m1.dadosHistoricos.slice(-15).map(v => v.high));
+    if (m1.close > resistenciaM1 && m5.close > resistenciaM1) {
+      console.log("Sinal CALL por rompimento com tendência alinhada");
+      return "CALL";
+    }
+    
+    // Pullback em EMA com volume
+    if (m1.close > m1.emaCurta && 
+        m1.close > m1.emaMedia &&
+        m1.volume > m1.volumeMedia * 1.5) {
+      console.log("Sinal CALL por pullback com volume");
       return "CALL";
     }
   }
-  
-  if (tendencia.tendencia === "FORTE_BAIXA") {
-    if (close < emaCurta && rsi > 35) {
-      console.log("Sinal PUT por tendência de baixa");
+
+  // 4. Sinais de baixa com confirmação
+  if (tendenciasBaixa >= CONFIG.LIMIARES.CONFIRMACAO_TIMEFRAME) {
+    // Confirmação de rompimento
+    const suporteM1 = Math.min(...m1.dadosHistoricos.slice(-15).map(v => v.low));
+    if (m1.close < suporteM1 && m5.close < suporteM1) {
+      console.log("Sinal PUT por rompimento com tendência alinhada");
+      return "PUT";
+    }
+    
+    // Pullback em EMA com volume
+    if (m1.close < m1.emaCurta && 
+        m1.close < m1.emaMedia &&
+        m1.volume > m1.volumeMedia * 1.5) {
+      console.log("Sinal PUT por pullback com volume");
       return "PUT";
     }
   }
-  
-  // 3. Reversão com RSI ajustado
-  if (rsi < 32 && close > emaMedia) {
-    console.log("Sinal CALL por RSI oversold");
+
+  // 5. Estratégia RSI divergente
+  if (m1.rsi < 35 && 
+      m5.rsi > state.rsiCache.m5 && 
+      m1.close > m1.emaMedia) {
+    console.log("Sinal CALL por divergência de RSI");
     return "CALL";
   }
-  if (rsi > 68 && close < emaMedia) {
-    console.log("Sinal PUT por RSI overbought");
+  
+  if (m1.rsi > 65 && 
+      m5.rsi < state.rsiCache.m5 && 
+      m1.close < m1.emaMedia) {
+    console.log("Sinal PUT por divergência de RSI");
     return "PUT";
   }
-  
-  // 4. Rompimento de suporte/resistência (novo critério)
-  const ultimos20 = dadosHistoricos.slice(-20);
-  const highs = ultimos20.map(v => v.high);
-  const lows = ultimos20.map(v => v.low);
-  const resistencia = Math.max(...highs);
-  const suporte = Math.min(...lows);
-  
-  if (close > resistencia) {
-    console.log("Sinal CALL por rompimento de resistência");
+
+  // 6. Estratégia de convergência de EMAs
+  if (m1.emaCurta > m1.emaMedia && 
+      m5.emaCurta > m5.emaMedia && 
+      m1.close > m1.emaCurta) {
+    console.log("Sinal CALL por convergência de EMAs");
     return "CALL";
   }
-  if (close < suporte) {
-    console.log("Sinal PUT por rompimento de suporte");
+  
+  if (m1.emaCurta < m1.emaMedia && 
+      m5.emaCurta < m5.emaMedia && 
+      m1.close < m1.emaCurta) {
+    console.log("Sinal PUT por convergência de EMAs");
     return "PUT";
   }
-  
-  // 5. Padrão de vela de reversão (novo critério)
-  const velaAtual = dadosHistoricos[dadosHistoricos.length - 1];
-  const range = velaAtual.high - velaAtual.low;
-  const corpo = Math.abs(velaAtual.open - velaAtual.close);
-  const sombraSuperior = velaAtual.high - Math.max(velaAtual.open, velaAtual.close);
-  const sombraInferior = Math.min(velaAtual.open, velaAtual.close) - velaAtual.low;
-  
-  // Hammer
-  if (corpo < range * 0.3 && sombraInferior >= 2 * corpo && sombraSuperior < corpo) {
-    if (velaAtual.close > velaAtual.open) {
-      console.log("Sinal CALL por padrão Hammer");
-      return "CALL";
-    }
-  }
-  
-  // Inverted Hammer
-  if (corpo < range * 0.3 && sombraSuperior >= 2 * corpo && sombraInferior < corpo) {
-    if (velaAtual.close > velaAtual.open) {
-      console.log("Sinal CALL por padrão Inverted Hammer");
-      return "CALL";
-    }
-  }
-  
+
   return "ESPERAR";
 }
 
 // =============================================
-// CALCULADOR DE CONFIANÇA
+// CALCULADOR DE CONFIANÇA COM MULTI-TIMEFRAME
 // =============================================
-function calcularScore(sinal, indicadores) {
-  let score = 60;
+function calcularScore(sinal, analises) {
+  const {m1, m5, m15} = analises;
+  let score = 50; // Base mais conservadora
   
-  if (sinal === "CALL" && indicadores.tendencia.tendencia.includes("ALTA")) score += 20;
-  if (sinal === "PUT" && indicadores.tendencia.tendencia.includes("BAIXA")) score += 20;
-  if (indicadores.volume > indicadores.volumeMedia * 1.5) score += 15;
-  if (sinal === "CALL" && indicadores.rsi < 35) score += 10;
-  if (sinal === "PUT" && indicadores.rsi > 65) score += 10;
+  // 1. Força da tendência principal (M15)
+  score += Math.min(20, Math.floor(m15.tendencia.forca / 5));
+  
+  // 2. Volume relativo
+  const volumeScore = Math.min(15, 
+    (m1.volume / m1.volumeMedia) * 5
+  );
+  score += volumeScore;
+  
+  // 3. Alinhamento de EMAs
+  if (sinal === "CALL") {
+    if (m1.emaCurta > m1.emaMedia) score += 10;
+    if (m1.emaMedia > m1.emaLonga) score += 5;
+  } else {
+    if (m1.emaCurta < m1.emaMedia) score += 10;
+    if (m1.emaMedia < m1.emaLonga) score += 5;
+  }
+  
+  // 4. Posição do preço em relação às EMAs
+  if (sinal === "CALL" && m1.close > m1.emaCurta) score += 8;
+  if (sinal === "PUT" && m1.close < m1.emaCurta) score += 8;
+  
+  // 5. Confirmação de timeframe
+  if ((sinal === "CALL" && m5.tendencia.tendencia.includes("ALTA")) ||
+      (sinal === "PUT" && m5.tendencia.tendencia.includes("BAIXA"))) {
+    score += 12;
+  }
   
   return Math.min(100, Math.max(0, score));
 }
@@ -189,9 +220,7 @@ function calcularScore(sinal, indicadores) {
 // FUNÇÕES UTILITÁRIAS
 // =============================================
 function formatarTimer(segundos) {
-  const min = Math.floor(segundos / 60);
-  const seg = segundos % 60;
-  return `${min}:${seg.toString().padStart(2, '0')}`;
+  return `00:${segundos.toString().padStart(2, '0')}`;
 }
 
 function atualizarRelogio() {
@@ -207,7 +236,7 @@ function atualizarRelogio() {
   }
 }
 
-function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
+function atualizarInterface(sinal, score, analises) {
   const comandoElement = document.getElementById("comando");
   if (comandoElement) {
     comandoElement.textContent = sinal;
@@ -221,6 +250,7 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
   const scoreElement = document.getElementById("score");
   if (scoreElement) {
     scoreElement.textContent = `Confiança: ${score}%`;
+    scoreElement.style.color = score > 75 ? '#00b894' : score > 60 ? '#fdcb6e' : '#ff7675';
   }
   
   // Atualizar histórico de sinais
@@ -233,10 +263,46 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
       return `<li class="${className}">${item}</li>`;
     }).join("");
   }
+  
+  // Atualizar análise de múltiplos timeframes
+  const timeframes = ['m1', 'm5', 'm15'];
+  timeframes.forEach(tf => {
+    const trendElement = document.getElementById(`${tf}-trend`);
+    const strengthElement = document.getElementById(`${tf}-strength`);
+    const rsiElement = document.getElementById(`${tf}-rsi`);
+    const volumeElement = document.getElementById(`${tf}-volume`);
+    
+    if (state.tendenciaCache[tf]) {
+      const { tendencia, forca } = state.tendenciaCache[tf];
+      if (trendElement) {
+        trendElement.textContent = tendencia;
+        trendElement.className = tendencia.includes("ALTA") ? 'trend trend-up' : 
+                               tendencia.includes("BAIXA") ? 'trend trend-down' : 'trend trend-neutral';
+      }
+      if (strengthElement) strengthElement.textContent = `${forca}%`;
+    }
+    
+    if (analises[tf]) {
+      if (rsiElement) rsiElement.textContent = analises[tf].rsi.toFixed(2);
+      if (volumeElement) {
+        const vol = analises[tf].volume;
+        volumeElement.textContent = vol > 1000000 
+          ? `${(vol/1000000).toFixed(2)}M` 
+          : `${(vol/1000).toFixed(1)}K`;
+      }
+    }
+  });
+  
+  // Atualizar barra de progresso
+  const progressBar = document.querySelector('.progress');
+  if (progressBar) {
+    progressBar.style.width = `${score}%`;
+    progressBar.style.backgroundColor = score > 75 ? '#00b894' : score > 60 ? '#fdcb6e' : '#ff7675';
+  }
 }
 
 // =============================================
-// INDICADORES TÉCNICOS
+// INDICADORES TÉCNICOS (ATUALIZADOS)
 // =============================================
 function calcularMediaSimples(dados, periodo) {
   if (!dados || dados.length < periodo) return 0;
@@ -261,10 +327,10 @@ function calcularRSI(closes, periodo = 14) {
   if (!closes || closes.length < periodo + 1) return 50;
   
   let gains = 0, losses = 0;
-  for (let i = 1; i <= periodo; i++) {
-    const diff = closes[i] - closes[i - 1];
+  for (let i = closes.length - periodo; i < closes.length - 1; i++) {
+    const diff = closes[i + 1] - closes[i];
     if (diff > 0) gains += diff;
-    else losses += Math.abs(diff);
+    else losses -= diff; // Usar valor absoluto
   }
 
   const avgGain = gains / periodo;
@@ -274,102 +340,12 @@ function calcularRSI(closes, periodo = 14) {
 }
 
 // =============================================
-// CORE DO SISTEMA
+// OBTENÇÃO DE DADOS PARA MÚLTIPLOS TIMEFRAMES
 // =============================================
-async function analisarMercado() {
-  if (state.leituraEmAndamento) return;
-  state.leituraEmAndamento = true;
-  
-  try {
-    const dados = await obterDadosBinance();
-    if (!dados || dados.length === 0) throw new Error("Sem dados");
-    
-    state.dadosHistoricos = dados;
-    const velaAtual = dados[dados.length - 1];
-    
-    // Dados básicos
-    const closes = dados.map(v => v.close);
-    const volumes = dados.map(v => v.volume);
-    
-    // Calculando indicadores
-    const ema13 = calcularEMA(closes, 13);
-    const ema48 = calcularEMA(closes, 48);
-    const ema200 = calcularEMA(closes, 200);
-    const rsi = calcularRSI(closes);
-    const volumeMedia = calcularMediaSimples(volumes, 20);
-    
-    // Avaliando tendência
-    const tendencia = avaliarTendencia(
-      closes, 
-      ema13, 
-      ema48, 
-      ema200, 
-      velaAtual.volume, 
-      volumeMedia
-    );
-    
-    const indicadores = {
-      rsi,
-      close: velaAtual.close,
-      emaCurta: ema13,
-      emaMedia: ema48,
-      volume: velaAtual.volume,
-      volumeMedia,
-      tendencia,
-      dadosHistoricos: dados
-    };
-
-    // Gerar sinal
-    const sinal = gerarSinal(indicadores);
-    const score = calcularScore(sinal, indicadores);
-    
-    // Atualizar estado
-    state.ultimoSinal = sinal;
-    state.ultimoScore = score;
-    state.ultimaAtualizacao = new Date().toLocaleTimeString("pt-BR");
-    
-    // Atualizar histórico
-    const entrada = `${state.ultimaAtualizacao} - ${sinal} (${score}%)`;
-    state.ultimos.unshift(entrada);
-    if (state.ultimos.length > 8) state.ultimos.pop();
-    
-    // Atualizar interface
-    atualizarInterface(sinal, score, tendencia.tendencia, tendencia.forca);
-    
-    // Atualizar critérios técnicos
-    const criteriosElement = document.getElementById("criterios");
-    if (criteriosElement) {
-      criteriosElement.innerHTML = `
-        <li>Tendência: ${tendencia.tendencia} (${tendencia.forca}%)</li>
-        <li>Preço: $${indicadores.close.toFixed(2)}</li>
-        <li>RSI: ${rsi.toFixed(2)}</li>
-        <li>Volume: ${(indicadores.volume/1000).toFixed(1)}K</li>
-        <li>EMA13: ${ema13.toFixed(2)}</li>
-        <li>EMA48: ${ema48.toFixed(2)}</li>
-      `;
-    }
-
-    state.tentativasErro = 0;
-  } catch (e) {
-    console.error("Erro na análise:", e);
-    atualizarInterface("ERRO", 0, "ERRO", 0);
-    
-    // Adicionar erro ao histórico
-    const erroEntry = `${new Date().toLocaleTimeString("pt-BR")} - ERRO (0%)`;
-    state.ultimos.unshift(erroEntry);
-    if (state.ultimos.length > 8) state.ultimos.pop();
-  } finally {
-    state.leituraEmAndamento = false;
-  }
-}
-
-// =============================================
-// OBTENÇÃO DE DADOS DA BINANCE
-// =============================================
-async function obterDadosBinance() {
+async function obterDadosBinance(timeframe = "1m", limit = 50) {
   try {
     const response = await fetch(
-      `${CONFIG.API_ENDPOINTS.BINANCE}/klines?symbol=BTCUSDT&interval=5m&limit=50`
+      `${CONFIG.API_ENDPOINTS.BINANCE}/klines?symbol=BTCUSDT&interval=${timeframe}&limit=${limit}`
     );
     
     if (!response.ok) throw new Error("Erro API: " + response.status);
@@ -384,25 +360,144 @@ async function obterDadosBinance() {
       volume: parseFloat(item[5])
     }));
   } catch (e) {
-    console.error("Erro ao obter dados:", e);
+    console.error(`Erro ao obter dados (${timeframe}):`, e);
     return [];
   }
 }
 
+async function carregarDadosMultiplosTimeframes() {
+  try {
+    const [dadosM1, dadosM5, dadosM15] = await Promise.all([
+      obterDadosBinance("1m", 100),
+      obterDadosBinance("5m", 100),
+      obterDadosBinance("15m", 100)
+    ]);
+    
+    return {
+      m1: dadosM1,
+      m5: dadosM5,
+      m15: dadosM15
+    };
+  } catch (e) {
+    console.error("Erro ao carregar múltiplos timeframes:", e);
+    return { m1: [], m5: [], m15: [] };
+  }
+}
+
 // =============================================
-// CONTROLE DE TEMPO
+// CORE DO SISTEMA (ATUALIZADO)
+// =============================================
+async function analisarMercado() {
+  if (state.leituraEmAndamento) return;
+  state.leituraEmAndamento = true;
+  
+  try {
+    // Carregar dados para múltiplos timeframes
+    const dados = await carregarDadosMultiplosTimeframes();
+    state.dadosHistoricos = dados;
+    
+    const analises = {};
+    
+    // Analisar cada timeframe
+    for (const timeframe of ['m1', 'm5', 'm15']) {
+      const tfDados = dados[timeframe];
+      if (!tfDados || tfDados.length === 0) continue;
+      
+      const velaAtual = tfDados[tfDados.length - 1];
+      const closes = tfDados.map(v => v.close);
+      const volumes = tfDados.map(v => v.volume);
+      
+      // Calculando indicadores
+      const emaCurta = calcularEMA(closes, CONFIG.PERIODOS.EMA_CURTA);
+      const emaMedia = calcularEMA(closes, CONFIG.PERIODOS.EMA_MEDIA);
+      const emaLonga = calcularEMA(closes, CONFIG.PERIODOS.EMA_LONGA);
+      const rsi = calcularRSI(closes);
+      const volumeMedia = calcularMediaSimples(volumes, CONFIG.PERIODOS.SMA_VOLUME);
+      
+      // Atualizar cache RSI para divergência
+      if (timeframe === 'm5') state.rsiCache.m5 = rsi;
+      
+      // Avaliando tendência
+      const tendencia = avaliarTendencia(
+        closes, 
+        emaCurta, 
+        emaMedia, 
+        emaLonga, 
+        velaAtual.volume, 
+        volumeMedia
+      );
+      
+      // Armazenar análise
+      analises[timeframe] = {
+        rsi,
+        close: velaAtual.close,
+        emaCurta,
+        emaMedia,
+        emaLonga,
+        volume: velaAtual.volume,
+        volumeMedia,
+        tendencia,
+        dadosHistoricos: tfDados
+      };
+      
+      // Cache para atualização da interface
+      state.tendenciaCache[timeframe] = tendencia;
+    }
+    
+    // Gerar sinal baseado na análise de múltiplos timeframes
+    const sinal = gerarSinal(analises);
+    
+    // Calcular confiança do sinal
+    const score = calcularScore(sinal, analises);
+    
+    // Atualizar estado
+    state.ultimoSinal = sinal;
+    state.ultimoScore = score;
+    state.ultimaAtualizacao = new Date().toLocaleTimeString("pt-BR");
+    
+    // Atualizar histórico apenas se atender confiança mínima
+    if (score >= CONFIG.LIMIARES.SCORE_MINIMO || sinal === "ESPERAR") {
+      const entrada = `${state.ultimaAtualizacao} - ${sinal} (${score}%)`;
+      state.ultimos.unshift(entrada);
+      if (state.ultimos.length > 8) state.ultimos.pop();
+    }
+    
+    // Atualizar interface
+    atualizarInterface(sinal, score, analises);
+    
+    // Atualizar taxa de sucesso
+    const totalOps = state.winCount + state.lossCount;
+    const successRate = totalOps > 0 ? Math.round((state.winCount / totalOps) * 100) : 0;
+    const successElement = document.getElementById("success-rate");
+    if (successElement) successElement.textContent = `${successRate}%`;
+    
+    state.tentativasErro = 0;
+  } catch (e) {
+    console.error("Erro na análise:", e);
+    atualizarInterface("ERRO", 0, {});
+    
+    // Adicionar erro ao histórico
+    const erroEntry = `${new Date().toLocaleTimeString("pt-BR")} - ERRO (0%)`;
+    state.ultimos.unshift(erroEntry);
+    if (state.ultimos.length > 8) state.ultimos.pop();
+  } finally {
+    state.leituraEmAndamento = false;
+  }
+}
+
+// =============================================
+// CONTROLE DE TEMPO (AJUSTADO PARA M1)
 // =============================================
 function sincronizarTimer() {
   clearInterval(state.intervaloAtual);
-  const agora = Date.now();
-  const intervalo = 5 * 60 * 1000;
-  const delayProximaVela = intervalo - (agora % intervalo);
-  state.timer = Math.floor(delayProximaVela / 1000);
+  
+  // Timer regressivo de 59 segundos para M1
+  state.timer = 59;
   
   const elementoTimer = document.getElementById("timer");
   if (elementoTimer) {
     elementoTimer.textContent = formatarTimer(state.timer);
-    elementoTimer.style.color = state.timer <= 30 ? 'red' : '';
+    elementoTimer.style.color = state.timer <= 10 ? '#ff7675' : '';
   }
   
   state.intervaloAtual = setInterval(() => {
@@ -410,7 +505,7 @@ function sincronizarTimer() {
     
     if (elementoTimer) {
       elementoTimer.textContent = formatarTimer(state.timer);
-      elementoTimer.style.color = state.timer <= 30 ? 'red' : '';
+      elementoTimer.style.color = state.timer <= 10 ? '#ff7675' : '';
     }
     
     if (state.timer <= 0) {
@@ -422,7 +517,7 @@ function sincronizarTimer() {
 }
 
 // =============================================
-// WEBSOCKET PARA ATUALIZAÇÕES EM TEMPO REAL
+// WEBSOCKET (MANTIDO PARA M1)
 // =============================================
 function iniciarWebSocket() {
   if (state.websocket) state.websocket.close();
@@ -472,6 +567,12 @@ function registrar(resultado) {
       return `<li class="${className}">${item}</li>`;
     }).join("");
   }
+  
+  // Atualizar taxa de sucesso
+  const totalOps = state.winCount + state.lossCount;
+  const successRate = totalOps > 0 ? Math.round((state.winCount / totalOps) * 100) : 0;
+  const successElement = document.getElementById("success-rate");
+  if (successElement) successElement.textContent = `${successRate}%`;
 }
 
 // =============================================
@@ -479,7 +580,7 @@ function registrar(resultado) {
 // =============================================
 function iniciarAplicativo() {
   // Elementos essenciais
-  const elementosRequeridos = ['comando', 'score', 'hora', 'timer', 'criterios', 'ultimos'];
+  const elementosRequeridos = ['comando', 'score', 'hora', 'timer', 'ultimos'];
   const elementosFaltantes = elementosRequeridos.filter(id => !document.getElementById(id));
   
   if (elementosFaltantes.length > 0) {
@@ -498,7 +599,7 @@ function iniciarAplicativo() {
   ];
   
   // Atualizar interface inicial
-  atualizarInterface("AGUARDANDO", 0, "NEUTRA", 0);
+  atualizarInterface("AGUARDANDO", 0, {});
   
   // Configurar atualizações
   setInterval(atualizarRelogio, 1000);
@@ -510,7 +611,7 @@ function iniciarAplicativo() {
   
   // Atualizar display do intervalo
   const intervaloElement = document.getElementById("intervalo-display");
-  if (intervaloElement) intervaloElement.textContent = "5 Minuto";
+  if (intervaloElement) intervaloElement.textContent = "1 Minuto";
 }
 
 // Iniciar quando o documento estiver pronto
