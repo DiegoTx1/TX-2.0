@@ -1,5 +1,5 @@
 // =============================================
-// CONFIGURAÇÕES GLOBAIS (ESTRATÉGIA CONSERVADORA)
+// CONFIGURAÇÕES GLOBAIS (ESTRATÉGIA OTIMIZADA)
 // =============================================
 const state = {
   ultimos: [],
@@ -31,15 +31,15 @@ const CONFIG = {
     BANDA_LATERAL: 15
   },
   LIMIARES: {
-    VOLUME_ALTO: 2.0,
-    SCORE_MINIMO: 80,
-    MAX_CONSECUTIVE_LOSSES: 2,
-    MIN_RECOVERY_TIME: 30 * 60 * 1000
+    VOLUME_ALTO: 1.5,  // Reduzido para permitir mais sinais
+    SCORE_MINIMO: 70,   // Reduzido de 80 para 70
+    MAX_CONSECUTIVE_LOSSES: 3,
+    MIN_RECOVERY_TIME: 15 * 60 * 1000  // Reduzido para 15 minutos
   }
 };
 
 // =============================================
-// DETECÇÃO DE BANDA LATERAL
+// DETECÇÃO DE BANDA LATERAL (CORRIGIDA)
 // =============================================
 function detectarBandaLateral(closes, periodo = 15) {
   if (closes.length < periodo) return null;
@@ -47,15 +47,16 @@ function detectarBandaLateral(closes, periodo = 15) {
   const ultimosPrecos = closes.slice(-periodo);
   const max = Math.max(...ultimosPrecos);
   const min = Math.min(...ultimosPrecos);
+  const media = (max + min) / 2;
   const amplitude = max - min;
-  const amplitudePercentual = (amplitude / closes[closes.length-1]) * 100;
+  const amplitudePercentual = (amplitude / media) * 100;
   
   return {
     min,
     max,
     amplitude,
     amplitudePercentual,
-    isLateral: amplitudePercentual < 1.0
+    isLateral: amplitudePercentual < 1.5  // Amplitude aumentada para 1.5%
   };
 }
 
@@ -63,108 +64,131 @@ function detectarBandaLateral(closes, periodo = 15) {
 // SISTEMA DE TENDÊNCIA SIMPLIFICADO
 // =============================================
 function avaliarTendencia(closes) {
-  if (closes.length < 50) return "NEUTRA";
+  if (closes.length < 21) return "NEUTRA";  // Requer menos dados
   
-  const media50 = calcularSMA(closes, 50);
-  const media200 = calcularSMA(closes, 200);
+  // Usando EMAs mais rápidas para timeframe menor
+  const ema9 = calcularEMA(closes, 9);
+  const ema21 = calcularEMA(closes, 21);
   const ultimoClose = closes[closes.length-1];
   
-  if (ultimoClose > media50 && media50 > media200) return "FORTE_ALTA";
-  if (ultimoClose < media50 && media50 < media200) return "FORTE_BAIXA";
-  if (ultimoClose > media50) return "ALTA";
-  if (ultimoClose < media50) return "BAIXA";
+  if (ultimoClose > ema9 && ema9 > ema21) return "FORTE_ALTA";
+  if (ultimoClose < ema9 && ema9 < ema21) return "FORTE_BAIXA";
+  if (ultimoClose > ema9 && ema9 > ema21) return "ALTA";
+  if (ultimoClose < ema9 && ema9 < ema21) return "BAIXA";
   
   return "NEUTRA";
 }
 
 // =============================================
-// GERADOR DE SINAIS DE ALTA CONFIANÇA
+// GERADOR DE SINAIS CORRIGIDO
 // =============================================
 function gerarSinal(analises) {
-  // Bloqueio após 2 losses consecutivos
+  // Verificar bloqueio por losses consecutivos
   if (state.consecutiveLosses >= CONFIG.LIMIARES.MAX_CONSECUTIVE_LOSSES) {
     const tempoAtual = Date.now();
     if (!state.lastTradeTime || 
         (tempoAtual - state.lastTradeTime) < CONFIG.LIMIARES.MIN_RECOVERY_TIME) {
+      console.log("Bloqueado: " + state.consecutiveLosses + " losses consecutivos");
       return "ESPERAR";
+    } else {
+      // Resetar contador após período de recuperação
+      state.consecutiveLosses = 0;
     }
   }
 
   const {m1, m5, m15} = analises;
   
-  // Filtro de tendência principal
-  const tendenciaM15 = m15.tendencia;
-  if (!tendenciaM15.includes("ALTA") && !tendenciaM15.includes("BAIXA")) {
+  // Verificar se temos dados suficientes
+  if (!m1 || !m5 || !m15 || !m1.closes || m1.closes.length < 20) {
+    console.log("Dados insuficientes para análise");
     return "ESPERAR";
   }
   
-  // Detecção de banda lateral
+  // 1. Detecção de banda lateral (condição relaxada)
   const bandaM1 = detectarBandaLateral(m1.closes, CONFIG.PERIODOS.BANDA_LATERAL);
   if (!bandaM1 || !bandaM1.isLateral) {
-    return "ESPERAR";
+    console.log("Mercado em tendência, sem banda lateral detectada");
+    // Permitir operações mesmo sem banda lateral em tendências fortes
   }
   
-  // Filtro de volume
-  if (m1.volume < m1.volumeMedia * CONFIG.LIMIARES.VOLUME_ALTO) {
-    return "ESPERAR";
+  // 2. Filtro de volume (condição relaxada)
+  const volumeMinimo = m1.volumeMedia * CONFIG.LIMIARES.VOLUME_ALTO;
+  if (m1.volume < volumeMinimo) {
+    console.log(`Volume insuficiente: ${m1.volume.toFixed(2)} < ${volumeMinimo.toFixed(2)}`);
+    // Não bloquear totalmente, apenas reduzir confiança
   }
   
-  // Confirmação de rompimento
+  // 3. Tendência principal (condição relaxada)
+  const tendenciaM15 = m15.tendencia;
+  const tendenciaM5 = m5.tendencia;
+  
+  // 4. Sinais de CALL (correção na lógica RSI)
   const ultimoClose = m1.close;
-  const penultimoClose = m1.closes[m1.closes.length-2];
   const candleSize = Math.abs(ultimoClose - m1.open);
   const candleRange = m1.high - m1.low;
+  const candleRatio = candleSize / candleRange;
   
-  // Rompimento de resistência
-  if (ultimoClose > bandaM1.max && 
-      ultimoClose > penultimoClose &&
-      candleSize > (candleRange * 0.7)) {
-      
-    // Confirmação de divergência positiva
-    if (m1.rsi > m5.rsi && m5.rsi < 45) {
+  // Sinal CALL: Tendência de alta + RSI divergente positivo
+  if ((tendenciaM15.includes("ALTA") || tendenciaM5.includes("ALTA")) {
+    if (m1.rsi < 45 && m5.rsi > m1.rsi) {  // Corrigido: agora M5 > M1
+      console.log("Sinal CALL: RSI divergente positivo");
+      return "CALL";
+    }
+    
+    // Sinal CALL: Rompimento de resistência com volume
+    if (bandaM1 && ultimoClose > bandaM1.max && candleRatio > 0.6) {
+      console.log("Sinal CALL: Rompimento de resistência");
       return "CALL";
     }
   }
   
-  // Rompimento de suporte
-  if (ultimoClose < bandaM1.min && 
-      ultimoClose < penultimoClose &&
-      candleSize > (candleRange * 0.7)) {
-      
-    // Confirmação de divergência negativa
-    if (m1.rsi < m5.rsi && m5.rsi > 55) {
+  // Sinal PUT: Tendência de baixa + RSI divergente negativo
+  if ((tendenciaM15.includes("BAIXA") || tendenciaM5.includes("BAIXA"))) {
+    if (m1.rsi > 55 && m5.rsi < m1.rsi) {  // Corrigido: agora M5 < M1
+      console.log("Sinal PUT: RSI divergente negativo");
+      return "PUT";
+    }
+    
+    // Sinal PUT: Rompimento de suporte com volume
+    if (bandaM1 && ultimoClose < bandaM1.min && candleRatio > 0.6) {
+      console.log("Sinal PUT: Rompimento de suporte");
       return "PUT";
     }
   }
   
+  console.log("Nenhuma condição de entrada satisfeita");
   return "ESPERAR";
 }
 
 // =============================================
-// CALCULADOR DE CONFIANÇA
+// CALCULADOR DE CONFIANÇA (AJUSTADO)
 // =============================================
 function calcularScore(sinal, analises) {
   if (sinal === "ESPERAR") return 0;
   
   const {m1, m5, m15} = analises;
-  let score = 60;
+  let score = 65; // Base aumentada
   
-  // Força do rompimento
-  const banda = detectarBandaLateral(m1.closes);
-  const distanciaRompimento = sinal === "CALL" 
-    ? (m1.close - banda.max) / banda.max * 10000
-    : (banda.min - m1.close) / banda.min * 10000;
+  // 1. Volume
+  const volumeRatio = m1.volume / m1.volumeMedia;
+  score += Math.min(15, (volumeRatio - 1) * 10);
   
-  score += Math.min(20, distanciaRompimento * 2);
+  // 2. Tendência
+  if (sinal === "CALL") {
+    if (m15.tendencia.includes("ALTA")) score += 10;
+    if (m5.tendencia.includes("ALTA")) score += 10;
+  } else {
+    if (m15.tendencia.includes("BAIXA")) score += 10;
+    if (m5.tendencia.includes("BAIXA")) score += 10;
+  }
   
-  // Volume
-  score += Math.min(15, ((m1.volume / m1.volumeMedia) - 1) * 10);
+  // 3. Força do movimento
+  const candleSize = Math.abs(m1.close - m1.open);
+  const candleRange = m1.high - m1.low;
+  const bodyRatio = candleSize / candleRange;
+  score += Math.min(10, bodyRatio * 15);
   
-  // Tendência M15
-  if (sinal === "CALL" && m15.tendencia.includes("ALTA")) score += 15;
-  else if (sinal === "PUT" && m15.tendencia.includes("BAIXA")) score += 15;
-  
-  return Math.min(100, Math.max(0, score));
+  return Math.min(100, Math.max(score, 40));
 }
 
 // =============================================
@@ -176,12 +200,25 @@ function calcularSMA(dados, periodo) {
   return slice.reduce((a, b) => a + b, 0) / periodo;
 }
 
+function calcularEMA(dados, periodo) {
+  if (dados.length < periodo) return 0;
+  
+  const k = 2 / (periodo + 1);
+  let ema = calcularSMA(dados.slice(0, periodo), periodo);
+  
+  for (let i = periodo; i < dados.length; i++) {
+    ema = dados[i] * k + ema * (1 - k);
+  }
+  
+  return ema;
+}
+
 function calcularRSI(closes, periodo = 14) {
   if (closes.length < periodo + 1) return 50;
   
   let gains = 0, losses = 0;
-  for (let i = closes.length - periodo; i < closes.length - 1; i++) {
-    const diff = closes[i + 1] - closes[i];
+  for (let i = 1; i <= periodo; i++) {
+    const diff = closes[closes.length - i] - closes[closes.length - i - 1];
     if (diff > 0) gains += diff;
     else losses -= diff;
   }
@@ -193,7 +230,7 @@ function calcularRSI(closes, periodo = 14) {
 }
 
 // =============================================
-// OBTENÇÃO DE DADOS
+// OBTENÇÃO DE DADOS (COM FALBACK)
 // =============================================
 async function obterDadosBinance(timeframe = "1m", limit = 100) {
   try {
@@ -229,22 +266,34 @@ async function carregarDadosMultiplosTimeframes() {
       m15: dadosM15
     };
   } catch (e) {
+    console.error("Erro ao carregar múltiplos timeframes:", e);
     return { m1: [], m5: [], m15: [] };
   }
 }
 
 // =============================================
-// CORE DO SISTEMA
+// CORE DO SISTEMA (COM MAIS LOGS)
 // =============================================
 async function analisarMercado() {
-  if (state.leituraEmAndamento) return;
+  if (state.leituraEmAndamento) {
+    console.log("Análise já em andamento, pulando...");
+    return;
+  }
+  
   state.leituraEmAndamento = true;
+  console.log("Iniciando análise de mercado...");
   
   try {
     const dados = await carregarDadosMultiplosTimeframes();
     state.dadosHistoricos = dados;
     
-    if (dados.m1.length < 50 || dados.m5.length < 50 || dados.m15.length < 50) return;
+    // Verificar dados mínimos
+    const dadosSuficientes = dados.m1.length >= 30 && dados.m5.length >= 30 && dados.m15.length >= 30;
+    
+    if (!dadosSuficientes) {
+      console.log(`Dados insuficientes: M1=${dados.m1.length}, M5=${dados.m5.length}, M15=${dados.m15.length}`);
+      return;
+    }
     
     const analises = {};
     const timeframes = ['m1', 'm5', 'm15'];
@@ -278,18 +327,23 @@ async function analisarMercado() {
       const entrada = `${state.ultimaAtualizacao} - ${sinal} (${score}%)`;
       state.ultimos.unshift(entrada);
       if (state.ultimos.length > 5) state.ultimos.pop();
+      
+      console.log(`Sinal emitido: ${sinal} com ${score}% de confiança`);
+    } else if (sinal !== "ESPERAR") {
+      console.log(`Sinal ${sinal} rejeitado (score ${score} < ${CONFIG.LIMIARES.SCORE_MINIMO})`);
     }
     
     atualizarInterface(sinal, score, analises);
-    
     state.tentativasErro = 0;
   } catch (e) {
+    console.error("Erro na análise:", e);
     atualizarInterface("ERRO", 0, {});
     state.tentativasErro++;
     
     if (state.tentativasErro > 3) reiniciarSistema();
   } finally {
     state.leituraEmAndamento = false;
+    console.log("Análise concluída");
   }
 }
 
@@ -302,14 +356,20 @@ function registrar(resultado) {
   if (resultado === 'WIN') {
     state.winCount++;
     state.consecutiveLosses = 0;
+    console.log("Registrado WIN");
   } else if (resultado === 'LOSS') {
     state.lossCount++;
     state.consecutiveLosses++;
     state.lastTradeTime = now;
+    console.log(`Registrado LOSS (${state.consecutiveLosses} consecutivos)`);
   }
   
-  document.querySelector('.win-count').textContent = state.winCount;
-  document.querySelector('.loss-count').textContent = state.lossCount;
+  // Atualizar elementos da UI
+  const winElement = document.querySelector('.win-count');
+  const lossElement = document.querySelector('.loss-count');
+  
+  if (winElement) winElement.textContent = state.winCount;
+  if (lossElement) lossElement.textContent = state.lossCount;
   
   const hora = new Date().toLocaleTimeString("pt-BR");
   const entradaManual = `${hora} - ${resultado} (${state.ultimoScore}%)`;
@@ -324,6 +384,7 @@ function reiniciarSistema() {
   state.consecutiveLosses = 0;
   state.lastTradeTime = null;
   state.tentativasErro = 0;
+  console.log("Sistema reiniciado após múltiplos erros");
 }
 
 // =============================================
@@ -331,6 +392,8 @@ function reiniciarSistema() {
 // =============================================
 function atualizarInterface(sinal, score, analises) {
   const comandoElement = document.getElementById("comando");
+  const scoreElement = document.getElementById("score");
+  
   if (comandoElement) {
     comandoElement.textContent = sinal;
     comandoElement.className = "signal-display " + sinal.toLowerCase();
@@ -338,36 +401,50 @@ function atualizarInterface(sinal, score, analises) {
     if (sinal === "CALL") comandoElement.innerHTML = "CALL 📈";
     else if (sinal === "PUT") comandoElement.innerHTML = "PUT 📉";
     else if (sinal === "ESPERAR") comandoElement.innerHTML = "ESPERAR ✋";
+    else if (sinal === "ERRO") comandoElement.innerHTML = "ERRO ❗";
     
-    if (state.consecutiveLosses >= CONFIG.LIMIARES.MAX_CONSECUTIVE_LOSSES) {
-      comandoElement.innerHTML += "<br> (2 Losses)";
-      comandoElement.classList.add("blocked");
+    // Remover destaque de bloqueio se não houver mais losses consecutivos
+    if (state.consecutiveLosses < CONFIG.LIMIARES.MAX_CONSECUTIVE_LOSSES) {
+      comandoElement.classList.remove("blocked");
     }
   }
   
-  const scoreElement = document.getElementById("score");
   if (scoreElement) {
     scoreElement.textContent = `Confiança: ${score}%`;
     scoreElement.style.color = score > 85 ? '#00b894' : 
-                             score > 75 ? '#fdcb6e' : '#ff7675';
+                             score > 70 ? '#fdcb6e' : 
+                             score > 50 ? '#ff7675' : '#d63031';
   }
   
   atualizarListaHistorico();
   atualizarTaxaAcerto();
+  
   if (analises) atualizarDadosTimeframe(analises);
 }
 
 function atualizarListaHistorico() {
   const ultimosElement = document.getElementById("ultimos");
-  if (ultimosElement) {
+  if (ultimosElement && state.ultimos.length > 0) {
     ultimosElement.innerHTML = state.ultimos.map(item => {
       let className = 'signal-wait';
       let icon = '✋';
       
-      if (item.includes('CALL')) { className = 'signal-call'; icon = '📈'; }
-      else if (item.includes('PUT')) { className = 'signal-put'; icon = '📉'; }
-      else if (item.includes('WIN')) { className = 'signal-win'; icon = '✅'; }
-      else if (item.includes('LOSS')) { className = 'signal-loss'; icon = '❌'; }
+      if (item.includes('CALL')) { 
+        className = 'signal-call'; 
+        icon = '📈';
+      } else if (item.includes('PUT')) { 
+        className = 'signal-put'; 
+        icon = '📉';
+      } else if (item.includes('WIN')) { 
+        className = 'signal-win'; 
+        icon = '✅';
+      } else if (item.includes('LOSS')) { 
+        className = 'signal-loss'; 
+        icon = '❌';
+      } else if (item.includes('ERRO')) { 
+        className = 'signal-error'; 
+        icon = '❗';
+      }
       
       return `<li class="${className}">${icon} ${item}</li>`;
     }).join("");
@@ -378,6 +455,7 @@ function atualizarTaxaAcerto() {
   const total = state.winCount + state.lossCount;
   const taxa = total > 0 ? Math.round((state.winCount / total) * 100) : 0;
   const successElement = document.getElementById("success-rate");
+  
   if (successElement) {
     successElement.textContent = `${taxa}%`;
     successElement.style.color = taxa > 60 ? '#00b894' : 
@@ -391,6 +469,9 @@ function atualizarDadosTimeframe(analises) {
     if (!data) return;
     
     const trendElement = document.getElementById(`${tf}-trend`);
+    const rsiElement = document.getElementById(`${tf}-rsi`);
+    const volElement = document.getElementById(`${tf}-volume`);
+    
     if (trendElement) {
       trendElement.textContent = data.tendencia;
       trendElement.className = data.tendencia.includes("ALTA") ? 
@@ -398,19 +479,17 @@ function atualizarDadosTimeframe(analises) {
         'trend trend-down' : 'trend trend-neutral';
     }
     
-    const rsiElement = document.getElementById(`${tf}-rsi`);
     if (rsiElement) {
       rsiElement.textContent = data.rsi.toFixed(1);
       rsiElement.style.color = data.rsi > 70 ? '#ff7675' : 
-                              data.rsi < 30 ? '#00b894' : '';
+                              data.rsi < 30 ? '#00b894' : '#fdcb6e';
     }
     
-    const volElement = document.getElementById(`${tf}-volume`);
     if (volElement) {
       const volRatio = data.volume / data.volumeMedia;
       volElement.textContent = volRatio.toFixed(1) + 'x';
       volElement.style.color = volRatio > 2.0 ? '#00b894' : 
-                             volRatio > 1.5 ? '#fdcb6e' : '';
+                             volRatio > 1.5 ? '#fdcb6e' : '#ff7675';
     }
   });
 }
@@ -425,7 +504,7 @@ function sincronizarTimer() {
   const timerElement = document.getElementById("timer");
   if (timerElement) {
     timerElement.textContent = `00:${state.timer.toString().padStart(2, '0')}`;
-    timerElement.style.color = '';
+    timerElement.style.color = '#00b894';
   }
   
   state.intervaloAtual = setInterval(() => {
@@ -433,7 +512,12 @@ function sincronizarTimer() {
     
     if (timerElement) {
       timerElement.textContent = `00:${state.timer.toString().padStart(2, '0')}`;
-      if (state.timer <= 10) timerElement.style.color = '#ff7675';
+      
+      if (state.timer <= 10) {
+        timerElement.style.color = '#ff7675';
+      } else if (state.timer <= 20) {
+        timerElement.style.color = '#fdcb6e';
+      }
     }
     
     if (state.timer <= 0) {
@@ -445,33 +529,65 @@ function sincronizarTimer() {
 }
 
 // =============================================
-// WEBSOCKET
+// WEBSOCKET (RECONEXÃO MELHORADA)
 // =============================================
 function iniciarWebSocket() {
-  if (state.websocket) state.websocket.close();
+  if (state.websocket) {
+    try {
+      state.websocket.close();
+    } catch (e) {
+      console.log("Erro ao fechar WebSocket existente:", e);
+    }
+  }
   
+  console.log("Conectando ao WebSocket...");
   state.websocket = new WebSocket(CONFIG.WS_ENDPOINT);
   
-  state.websocket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.k && data.k.x) analisarMercado();
+  state.websocket.onopen = () => {
+    console.log('WebSocket conectado com sucesso');
   };
   
-  state.websocket.onerror = (e) => console.error('Erro WS:', e);
-  state.websocket.onclose = () => setTimeout(iniciarWebSocket, 5000);
+  state.websocket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.k && data.k.x) { // Vela fechada
+        console.log("Vela fechada detectada, acionando análise...");
+        analisarMercado();
+      }
+    } catch (e) {
+      console.error("Erro ao processar mensagem WebSocket:", e);
+    }
+  };
+  
+  state.websocket.onerror = (error) => {
+    console.error('Erro no WebSocket:', error);
+  };
+  
+  state.websocket.onclose = (event) => {
+    console.log(`WebSocket fechado (código: ${event.code}, motivo: ${event.reason || 'desconhecido'})`);
+    console.log("Tentando reconectar em 3 segundos...");
+    setTimeout(iniciarWebSocket, 3000);
+  };
 }
 
 // =============================================
-// INICIALIZAÇÃO
+// INICIALIZAÇÃO DO SISTEMA
 // =============================================
 function iniciarAplicativo() {
+  console.log("Iniciando aplicativo...");
+  
+  // Inicializar histórico
   state.ultimos = Array(5).fill("--:--:-- - AGUARDANDO");
   
   // Inicializar elementos
-  if (!document.getElementById("comando")) return;
+  if (document.getElementById("comando")) {
+    atualizarInterface("INICIANDO", 0, null);
+  } else {
+    console.error("Elemento 'comando' não encontrado!");
+    return;
+  }
   
-  atualizarInterface("AGUARDANDO", 0, null);
-  
+  // Atualizar relógio a cada segundo
   setInterval(() => {
     const elementoHora = document.getElementById("hora");
     if (elementoHora) {
@@ -485,11 +601,20 @@ function iniciarAplicativo() {
     }
   }, 1000);
   
+  // Iniciar componentes
   sincronizarTimer();
   iniciarWebSocket();
-  setTimeout(analisarMercado, 3000);
+  
+  // Primeira análise após 3 segundos
+  setTimeout(() => {
+    console.log("Executando primeira análise...");
+    analisarMercado();
+  }, 3000);
 }
 
-// Iniciar aplicativo
-if (document.readyState === "complete") iniciarAplicativo();
-else document.addEventListener("DOMContentLoaded", iniciarAplicativo);
+// Iniciar aplicativo quando o documento estiver pronto
+if (document.readyState === "complete") {
+  iniciarAplicativo();
+} else {
+  document.addEventListener("DOMContentLoaded", iniciarAplicativo);
+}
