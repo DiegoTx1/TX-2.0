@@ -19,15 +19,17 @@ const state = {
   lastTradeTime: null,
   accountEmail: "",
   volatility: 0,
-  exposure: 0
+  exposure: 0,
+  sessionToken: null
 };
 
 const CONFIG = {
   API_ENDPOINTS: {
-    STOCKITY: "https://api.stockity.com/v1/market",
-    CRYPTO_IDX: "https://api.stockity.com/v1/indices/crypto-idx"
+    STOCKITY_LOGIN: "https://stockity.id/auth",
+    STOCKITY_DATA: "https://api.stockity.id/v1/market",
+    CRYPTO_IDX: "https://api.stockity.id/v1/indices/crypto-idx"
   },
-  WS_ENDPOINT: "wss://stream.stockity.com/ws/crypto-idx@realtime",
+  WS_ENDPOINT: "wss://stream.stockity.id/ws/crypto-idx@realtime",
   PARES: {
     CRYPTO_IDX: "CRYPTO_IDX"
   },
@@ -47,7 +49,7 @@ const CONFIG = {
 };
 
 // =============================================
-// SISTEMA DE AUTENTICAÇÃO
+// SISTEMA DE AUTENTICAÇÃO ATUALIZADO
 // =============================================
 function encryptData(data) {
   return btoa(unescape(encodeURIComponent(JSON.stringify(data)));
@@ -62,22 +64,45 @@ function decryptData(encrypted) {
   }
 }
 
-async function testarConexaoStockity(email, senha) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(email.includes("@") && senha.length >= 8);
-    }, 1500);
-  });
-}
+async function fazerLoginStockity(email, senha) {
+  try {
+    const response = await fetch(CONFIG.API_ENDPOINTS.STOCKITY_LOGIN, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({
+        email: email,
+        password: senha,
+        remember: true
+      })
+    });
 
-function showMainPanel() {
-  document.getElementById("login-section").classList.add("hidden");
-  document.getElementById("main-panel").classList.remove("hidden");
-  iniciarAplicativo();
+    const data = await response.json();
+    
+    if (response.status === 200 && data.token) {
+      return {
+        success: true,
+        token: data.token,
+        user: data.user
+      };
+    } else {
+      return {
+        success: false,
+        message: data.message || "Erro desconhecido no login"
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: "Falha na conexão com o servidor"
+    };
+  }
 }
 
 // =============================================
-// GERENCIAMENTO DE LOGIN
+// GERENCIAMENTO DE LOGIN ATUALIZADO
 // =============================================
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -89,33 +114,39 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   
   connectBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> CONECTANDO';
   connectBtn.disabled = true;
-  statusElement.textContent = "Verificando credenciais...";
+  statusElement.textContent = "Autenticando na Stockity...";
   statusElement.style.color = "#FF9800";
   
   try {
-    const loginValido = await testarConexaoStockity(email, senha);
+    const loginResult = await fazerLoginStockity(email, senha);
     
-    if (loginValido) {
-      const credenciaisCripto = encryptData({ email, senha });
+    if (loginResult.success) {
+      // Armazenar token de sessão
+      state.sessionToken = loginResult.token;
+      
+      // Salvar credenciais criptografadas
+      const credenciaisCripto = encryptData({ 
+        email, 
+        token: loginResult.token 
+      });
       localStorage.setItem('stockity_creds', credenciaisCripto);
       
-      statusElement.textContent = "✅ Conectado com sucesso! Iniciando sistema...";
+      statusElement.textContent = "✅ Login realizado com sucesso!";
       statusElement.style.color = "#4CAF50";
       
       state.accountEmail = email;
       state.connected = true;
       document.getElementById("account-email").textContent = email;
       
-      setTimeout(showMainPanel, 2000);
+      setTimeout(showMainPanel, 1500);
     } else {
-      statusElement.textContent = "❌ Credenciais inválidas! Verifique e tente novamente.";
+      statusElement.textContent = `❌ Falha no login: ${loginResult.message}`;
       statusElement.style.color = "#F44336";
-      connectBtn.innerHTML = '<i class="fa-solid fa-plug"></i> CONECTAR';
-      connectBtn.disabled = false;
     }
   } catch (error) {
     statusElement.textContent = "⚠️ Erro na conexão: " + error.message;
     statusElement.style.color = "#FF9800";
+  } finally {
     connectBtn.innerHTML = '<i class="fa-solid fa-plug"></i> CONECTAR';
     connectBtn.disabled = false;
   }
@@ -123,18 +154,37 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
 document.getElementById('logout-btn').addEventListener('click', () => {
   localStorage.removeItem('stockity_creds');
+  state.sessionToken = null;
+  state.connected = false;
   location.reload();
 });
 
 // =============================================
-// FUNÇÕES DE ANÁLISE DO CRYPTO IDX
+// FUNÇÕES DE DADOS DO CRYPTO IDX
 // =============================================
 async function carregarDadosCryptoIdx() {
+  if (!state.sessionToken) {
+    throw new Error("Não autenticado");
+  }
+
   try {
     const [dadosResponse, metadadosResponse] = await Promise.all([
-      fetch(`${CONFIG.API_ENDPOINTS.STOCKITY}/klines?symbol=${CONFIG.PARES.CRYPTO_IDX}&interval=1m&limit=100`),
-      fetch(CONFIG.API_ENDPOINTS.CRYPTO_IDX)
+      fetch(`${CONFIG.API_ENDPOINTS.STOCKITY_DATA}/klines?symbol=${CONFIG.PARES.CRYPTO_IDX}&interval=1m&limit=100`, {
+        headers: {
+          'Authorization': `Bearer ${state.sessionToken}`
+        }
+      }),
+      fetch(CONFIG.API_ENDPOINTS.CRYPTO_IDX, {
+        headers: {
+          'Authorization': `Bearer ${state.sessionToken}`
+        }
+      })
     ]);
+    
+    // Verificar se a resposta é válida
+    if (dadosResponse.status === 401) {
+      throw new Error("Sessão expirada");
+    }
     
     const dados = await dadosResponse.json();
     const metadados = await metadadosResponse.json();
@@ -184,7 +234,7 @@ function atualizarRebalanceamento(data) {
 }
 
 // =============================================
-// GERADOR DE SINAIS PARA CRYPTO IDX
+// GERADOR DE SINAIS PARA CRYPTO IDX (SIMULAÇÃO)
 // =============================================
 function gerarSinal(analises) {
   const rebalanceamentoElement = document.getElementById("rebalanceamento");
@@ -355,12 +405,32 @@ async function analisarMercado() {
     state.tentativasErro = 0;
   } catch (e) {
     console.error("Erro na análise:", e);
+    if (e.message === "Sessão expirada") {
+      handleSessionExpired();
+    }
     atualizarInterface("ERRO", 0, {});
     state.tentativasErro++;
   } finally {
     state.leituraEmAndamento = false;
     console.log("Análise concluída");
   }
+}
+
+function handleSessionExpired() {
+  const statusElement = document.getElementById('login-status');
+  if (statusElement) {
+    statusElement.textContent = "❌ Sessão expirada. Por favor, faça login novamente.";
+    statusElement.style.color = "#F44336";
+  }
+  
+  // Voltar para tela de login
+  document.getElementById("login-section").classList.remove("hidden");
+  document.getElementById("main-panel").classList.add("hidden");
+  
+  // Limpar credenciais
+  localStorage.removeItem('stockity_creds');
+  state.sessionToken = null;
+  state.connected = false;
 }
 
 // =============================================
@@ -487,12 +557,19 @@ function iniciarWebSocket() {
 // =============================================
 // INICIALIZAÇÃO DO SISTEMA
 // =============================================
+function showMainPanel() {
+  document.getElementById("login-section").classList.add("hidden");
+  document.getElementById("main-panel").classList.remove("hidden");
+  iniciarAplicativo();
+}
+
 function iniciarAplicativo() {
   console.log("Iniciando aplicativo...");
   
   state.ultimos = Array(5).fill("--:--:-- - AGUARDANDO");
   
-  setInterval(() => {
+  // Atualizar relógio em tempo real
+  const updateClock = () => {
     const elementoHora = document.getElementById("hora");
     if (elementoHora) {
       const now = new Date();
@@ -503,11 +580,15 @@ function iniciarAplicativo() {
       });
       elementoHora.textContent = state.ultimaAtualizacao;
     }
-  }, 1000);
+  };
+  
+  setInterval(updateClock, 1000);
+  updateClock();
   
   sincronizarTimer();
   iniciarWebSocket();
   
+  // Primeira análise após 3 segundos
   setTimeout(() => {
     analisarMercado();
   }, 3000);
@@ -516,12 +597,38 @@ function iniciarAplicativo() {
 // Verificação de login ao carregar
 window.addEventListener('DOMContentLoaded', () => {
   const credsCripto = localStorage.getItem('stockity_creds');
+  
   if (credsCripto) {
     const creds = decryptData(credsCripto);
-    if (creds && creds.email) {
+    
+    if (creds && creds.email && creds.token) {
+      // Preencher formulário e tentar reconectar
       document.getElementById("stockity-email").value = creds.email;
-      document.getElementById("login-status").textContent = "✅ Sessão recuperada. Clique em CONECTAR.";
+      document.getElementById("login-status").textContent = "✅ Sessão recuperada. Reconectando...";
       document.getElementById("login-status").style.color = "#4CAF50";
+      
+      // Tentar usar o token armazenado
+      state.sessionToken = creds.token;
+      state.accountEmail = creds.email;
+      
+      // Verificar se o token ainda é válido
+      setTimeout(() => {
+        analisarMercado()
+          .then(() => {
+            state.connected = true;
+            document.getElementById("account-email").textContent = creds.email;
+            showMainPanel();
+          })
+          .catch((error) => {
+            if (error.message === "Sessão expirada") {
+              document.getElementById("login-status").textContent = "❌ Sessão expirada. Faça login novamente.";
+              document.getElementById("login-status").style.color = "#F44336";
+            } else {
+              document.getElementById("login-status").textContent = "⚠️ Erro na reconexão: " + error.message;
+              document.getElementById("login-status").style.color = "#FF9800";
+            }
+          });
+      }, 1500);
     }
   }
 });
