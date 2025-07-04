@@ -68,6 +68,7 @@ button {
   border-radius: 6px;
   margin-right: 10px;
   cursor: pointer;
+  transition: background-color 0.3s;
 }
 
 button:hover {
@@ -78,4 +79,6 @@ button:hover {
   margin-top: 20px;
   border-radius: 10px;
   overflow: hidden;
+  height: 350px;
+  border: 1px solid #1e3a5f;
 }
