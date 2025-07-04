@@ -49,6 +49,16 @@ const CONFIG = {
 };
 
 // =============================================
+// POLYFILLS PARA BROWSERS ANTIGOS
+// =============================================
+if (!window.btoa) {
+  window.btoa = (str) => Buffer.from(str).toString('base64');
+}
+if (!window.atob) {
+  window.atob = (b64Encoded) => Buffer.from(b64Encoded, 'base64').toString();
+}
+
+// =============================================
 // SISTEMA DE AUTENTICAÇÃO ATUALIZADO
 // =============================================
 function encryptData(data) {
@@ -66,9 +76,10 @@ function decryptData(encrypted) {
 
 async function fazerLoginStockity(email, senha) {
   try {
+    console.log("Iniciando autenticação...");
     const response = await fetch(CONFIG.API_ENDPOINTS.STOCKITY_LOGIN, {
       method: 'POST',
-      headers: {
+      headers: { 
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
       },
@@ -79,7 +90,10 @@ async function fazerLoginStockity(email, senha) {
       })
     });
 
+    console.log("Status da resposta:", response.status);
+    
     const data = await response.json();
+    console.log("Resposta completa:", data);
     
     if (response.status === 200 && data.token) {
       return {
@@ -90,13 +104,14 @@ async function fazerLoginStockity(email, senha) {
     } else {
       return {
         success: false,
-        message: data.message || "Erro desconhecido no login"
+        message: data.message || `Erro HTTP ${response.status}`
       };
     }
   } catch (error) {
+    console.error("Erro fatal:", error);
     return {
       success: false,
-      message: "Falha na conexão com o servidor"
+      message: `Falha na conexão: ${error.message}`
     };
   }
 }
@@ -152,6 +167,41 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   }
 });
 
+// Botão de login alternativo
+document.getElementById('debug-login-btn').addEventListener('click', async () => {
+  const email = document.getElementById('stockity-email').value;
+  const senha = document.getElementById('stockity-password').value;
+  
+  if (!email || !senha) {
+    alert("Preencha email e senha!");
+    return;
+  }
+
+  const statusElement = document.getElementById('login-status');
+  statusElement.textContent = "Tentando conexão alternativa...";
+  statusElement.style.color = "#FF9800";
+  
+  const result = await fazerLoginStockity(email, senha);
+  
+  if (result.success) {
+    statusElement.textContent = "✅ Login realizado com sucesso (alternativo)!";
+    statusElement.style.color = "#4CAF50";
+    
+    // Armazenar token de sessão
+    state.sessionToken = result.token;
+    localStorage.setItem('stockity_creds', encryptData({ email, token: result.token }));
+    
+    state.accountEmail = email;
+    state.connected = true;
+    document.getElementById("account-email").textContent = email;
+    
+    setTimeout(showMainPanel, 1500);
+  } else {
+    statusElement.textContent = `❌ Falha no login: ${result.message}`;
+    statusElement.style.color = "#F44336";
+  }
+});
+
 document.getElementById('logout-btn').addEventListener('click', () => {
   localStorage.removeItem('stockity_creds');
   state.sessionToken = null;
@@ -184,6 +234,10 @@ async function carregarDadosCryptoIdx() {
     // Verificar se a resposta é válida
     if (dadosResponse.status === 401) {
       throw new Error("Sessão expirada");
+    }
+    
+    if (!dadosResponse.ok || !metadadosResponse.ok) {
+      throw new Error(`Erro na resposta da API: ${dadosResponse.status} / ${metadadosResponse.status}`);
     }
     
     const dados = await dadosResponse.json();
@@ -292,7 +346,7 @@ function calcularVolatilidade(dados) {
 
 function calcularExposicao(score, volatilidade) {
   const riscoBase = 0.02;
-  const fatorVol = Math.min(1, 0.5 / volatilidade);
+  const fatorVol = Math.min(1, 0.5 / (volatilidade/100)); // volatilidade em decimal
   const fatorScore = score / 100;
   
   return (riscoBase * fatorVol * fatorScore * 100).toFixed(2);
@@ -394,10 +448,11 @@ async function analisarMercado() {
       
       console.log(`Sinal emitido: ${sinal} com ${score}% de confiança`);
       
+      // Tocar som apenas se não for erro
       if (sinal === "CALL") {
-        document.getElementById("som-call").play();
+        document.getElementById("som-call").play().catch(e => console.log("Erro ao tocar som:", e));
       } else if (sinal === "PUT") {
-        document.getElementById("som-put").play();
+        document.getElementById("som-put").play().catch(e => console.log("Erro ao tocar som:", e));
       }
     }
     
@@ -594,7 +649,25 @@ function iniciarAplicativo() {
   }, 3000);
 }
 
-// Verificação de login ao carregar
+// =============================================
+// CONTROLES MANUAIS
+// =============================================
+document.getElementById('manual-call').addEventListener('click', () => registrar('WIN'));
+document.getElementById('manual-put').addEventListener('click', () => registrar('LOSS'));
+document.getElementById('reset-stats').addEventListener('click', () => {
+  state.winCount = 0;
+  state.lossCount = 0;
+  state.consecutiveLosses = 0;
+  state.lastTradeTime = null;
+  
+  document.getElementById("win-count").textContent = "0";
+  document.getElementById("loss-count").textContent = "0";
+  atualizarTaxaAcerto();
+});
+
+// =============================================
+// VERIFICAÇÃO DE LOGIN AO CARREGAR
+// =============================================
 window.addEventListener('DOMContentLoaded', () => {
   const credsCripto = localStorage.getItem('stockity_creds');
   
@@ -604,8 +677,9 @@ window.addEventListener('DOMContentLoaded', () => {
     if (creds && creds.email && creds.token) {
       // Preencher formulário e tentar reconectar
       document.getElementById("stockity-email").value = creds.email;
-      document.getElementById("login-status").textContent = "✅ Sessão recuperada. Reconectando...";
-      document.getElementById("login-status").style.color = "#4CAF50";
+      const statusElement = document.getElementById('login-status');
+      statusElement.textContent = "✅ Sessão recuperada. Reconectando...";
+      statusElement.style.color = "#4CAF50";
       
       // Tentar usar o token armazenado
       state.sessionToken = creds.token;
@@ -620,12 +694,13 @@ window.addEventListener('DOMContentLoaded', () => {
             showMainPanel();
           })
           .catch((error) => {
+            console.error("Falha na reconexão automática:", error);
             if (error.message === "Sessão expirada") {
-              document.getElementById("login-status").textContent = "❌ Sessão expirada. Faça login novamente.";
-              document.getElementById("login-status").style.color = "#F44336";
+              statusElement.textContent = "❌ Sessão expirada. Faça login novamente.";
+              statusElement.style.color = "#F44336";
             } else {
-              document.getElementById("login-status").textContent = "⚠️ Erro na reconexão: " + error.message;
-              document.getElementById("login-status").style.color = "#FF9800";
+              statusElement.textContent = "⚠️ Erro na reconexão: " + error.message;
+              statusElement.style.color = "#FF9800";
             }
           });
       }, 1500);
