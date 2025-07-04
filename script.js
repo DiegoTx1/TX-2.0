@@ -2,7 +2,6 @@
 // CONFIGURAÇÕES AVANÇADAS PARA IDX M1 (2025)
 // =============================================
 const CONFIG = {
-  // Parâmetros otimizados para volatilidade do IDX
   PERIODOS: {
     EMA_RAPIDA: 3,
     EMA_MEDIA: 13,
@@ -11,28 +10,22 @@ const CONFIG = {
     VOLUME_LOOKBACK: 4,
     ATR: 14
   },
-  
-  // Limites estatisticamente calibrados
   LIMITES: {
     RSI_ALTO: 72,
     RSI_BAIXO: 30,
     VOLUME_THRESHOLD: 2.5,
     ATR_THRESHOLD: 0.015
   },
-  
-  // Pesos dinâmicos
   PESOS: {
     TENDENCIA: 40,
     MOMENTUM: 30,
     VOLUME: 20,
     VOLATILIDADE: 10
   },
-  
-  // Horários de alta assertividade (UTC)
   HORARIOS_PREFERENCIAIS: [
-    { start: 12, end: 15 },   // Abertura Europa
-    { start: 15, end: 18 },   // Europa/América
-    { start: 21, end: 24 }    // Fechamento América
+    { start: 12, end: 15 },
+    { start: 15, end: 18 },
+    { start: 21, end: 24 }
   ]
 };
 
@@ -233,7 +226,9 @@ function atualizarRelogio() {
 
 function atualizarInterface(sinal, score, criterios = []) {
   const comandoElement = document.getElementById("comando");
+  const barraProgresso = document.getElementById("barra-progresso");
   
+  // Atualizar comando
   comandoElement.className = "";
   comandoElement.classList.add(sinal.toLowerCase());
   
@@ -260,8 +255,16 @@ function atualizarInterface(sinal, score, criterios = []) {
     comandoElement.textContent = "ESPERAR ✋";
   }
   
+  // Atualizar score e barra de progresso
   document.getElementById("score").textContent = `${Math.round(score)}%`;
+  barraProgresso.style.width = `${score}%`;
   
+  // Atualizar cor da barra conforme score
+  if (score >= 75) barraProgresso.style.background = "linear-gradient(90deg, #00e676, #00b248)";
+  else if (score >= 50) barraProgresso.style.background = "linear-gradient(90deg, #ffc107, #ff9800)";
+  else barraProgresso.style.background = "linear-gradient(90deg, #f44336, #d32f2f)";
+  
+  // Atualizar critérios
   const criteriosHTML = criterios.length 
     ? criterios.map(c => `<li>${c}</li>`).join("") 
     : "<li>Analisando condições de mercado...</li>";
@@ -282,10 +285,10 @@ function registrar(resultado) {
     state.ultimos.unshift(`${state.ultimaAtualizacao} - ${state.ultimoSinal} (${resultado})`);
     if (state.ultimos.length > 8) state.ultimos.pop();
     
-    const ultimosElement = document.getElementById("ultimos");
-    if (ultimosElement) {
-      ultimosElement.innerHTML = state.ultimos.map(i => `<li>${i}</li>`).join("");
-    }
+    const ultimosHTML = state.ultimos.length 
+      ? state.ultimos.map(i => `<li>${i}</li>`).join("") 
+      : "<li>Nenhum sinal registrado</li>";
+    document.getElementById("ultimos").innerHTML = ultimosHTML;
   }
 }
 
@@ -297,15 +300,15 @@ function gerarDadosSimulados() {
     ? state.dadosHistoricos[state.dadosHistoricos.length - 1].close 
     : 35000;
   
-  // Simular flutuações realistas (±2%)
-  const variacao = (Math.random() - 0.5) * 0.02;
+  // Simular flutuações realistas (±1.5%)
+  const variacao = (Math.random() - 0.5) * 0.015;
   const novoClose = ultimoClose * (1 + variacao);
   
   return {
     time: new Date().toISOString(),
     open: ultimoClose,
-    high: Math.max(ultimoClose, novoClose) * (1 + Math.random() * 0.01),
-    low: Math.min(ultimoClose, novoClose) * (1 - Math.random() * 0.01),
+    high: Math.max(ultimoClose, novoClose) * (1 + Math.random() * 0.008),
+    low: Math.min(ultimoClose, novoClose) * (1 - Math.random() * 0.008),
     close: novoClose,
     volume: 50000000 + Math.random() * 200000000
   };
@@ -338,10 +341,8 @@ function analisarMercado() {
     state.ultimos.unshift(`${state.ultimaAtualizacao} - ${sinal} (${Math.round(score)}%)`);
     if (state.ultimos.length > 8) state.ultimos.pop();
     
-    const ultimosElement = document.getElementById("ultimos");
-    if (ultimosElement) {
-      ultimosElement.innerHTML = state.ultimos.map(i => `<li>${i}</li>`).join("");
-    }
+    const ultimosHTML = state.ultimos.map(i => `<li>${i}</li>`).join("");
+    document.getElementById("ultimos").innerHTML = ultimosHTML;
   }
 }
 
@@ -355,11 +356,11 @@ function sincronizarTimer() {
   
   const agora = new Date();
   state.timer = 60 - agora.getSeconds();
-  document.getElementById("timer").textContent = state.timer;
+  document.getElementById("timer").textContent = `${state.timer}s`;
   
   state.intervaloTimer = setInterval(() => {
     state.timer--;
-    document.getElementById("timer").textContent = state.timer;
+    document.getElementById("timer").textContent = `${state.timer}s`;
     
     if (state.timer <= 0) {
       clearInterval(state.intervaloTimer);
@@ -376,12 +377,15 @@ function sincronizarTimer() {
 function iniciar() {
   // Iniciar com dados históricos
   for (let i = 0; i < 50; i++) {
+    const variacao = (Math.random() - 0.5) * 0.02;
+    const close = 35000 * (1 + variacao);
+    
     state.dadosHistoricos.push({
       time: new Date(Date.now() - (50 - i) * 60000).toISOString(),
       open: 35000 + Math.random() * 1000,
-      high: 35200 + Math.random() * 1000,
-      low: 34800 - Math.random() * 1000,
-      close: 35000 + Math.random() * 1500,
+      high: close * (1 + Math.random() * 0.01),
+      low: close * (1 - Math.random() * 0.01),
+      close: close,
       volume: 50000000 + Math.random() * 200000000
     });
   }
@@ -393,6 +397,12 @@ function iniciar() {
   
   // Primeira análise
   setTimeout(analisarMercado, 1000);
+  
+  // Inicializar interface
+  atualizarInterface("ESPERAR", 0, ["Aguardando primeira análise..."]);
+  
+  // Inicializar histórico
+  document.getElementById("historico").textContent = "0 WIN / 0 LOSS";
 }
 
 document.addEventListener("DOMContentLoaded", iniciar);
