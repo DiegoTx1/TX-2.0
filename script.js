@@ -50,15 +50,11 @@ const state = {
   historicoOperacoes: { win: 0, loss: 0 },
   intervaloTimer: null,
   consecutiveErrors: 0,
-  lastTimestamp: null,
-  contextoMercado: "NEUTRO"
+  lastTimestamp: null
 };
 
-// Fila de execução
-let analysisQueue = Promise.resolve();
-
 // =============================================
-// FUNÇÕES TÉCNICAS AVANÇADAS
+// FUNÇÕES TÉCNICAS
 // =============================================
 function calcularEMA(dados, periodo) {
   if (!dados || dados.length < periodo) return null;
@@ -117,20 +113,15 @@ function calcularVolumeRelativo(volumes, lookback = CONFIG.PERIODOS.VOLUME_LOOKB
   if (volumes.length < lookback + 1) return 1.0;
   
   const volumeAtual = volumes[volumes.length - 1];
-  const mediaVolumes = volumes.slice(-lookback - 1, -1).reduce((sum, vol) => sum + vol, 0) / lookback;
+  const volumesAnteriores = volumes.slice(-lookback - 1, -1);
+  const somaVolumes = volumesAnteriores.reduce((sum, vol) => sum + vol, 0);
+  const mediaVolumes = somaVolumes / lookback;
   
   return mediaVolumes > 0 ? volumeAtual / mediaVolumes : 1.0;
 }
 
-// =============================================
-// ALGORITMOS ESPECÍFICOS PARA IDX
-// =============================================
 function detectarImpulso(rapida, media, longa) {
   return rapida > media && media > longa;
-}
-
-function detectarReversao(rapida, media, longa) {
-  return (rapida > media && media < longa) || (rapida < media && media > longa);
 }
 
 function calcularForcaMercado() {
@@ -143,7 +134,7 @@ function calcularForcaMercado() {
 }
 
 // =============================================
-// GERADOR DE SINAIS DE ALTA ASSERTIVIDADE
+// GERADOR DE SINAIS
 // =============================================
 function gerarSinal() {
   if (state.dadosHistoricos.length < 50) {
@@ -210,7 +201,7 @@ function gerarSinal() {
   // Aplicar fator horário
   score = Math.min(100, Math.max(0, score * forcaMercado));
   
-  // Geração de sinal com confirmação
+  // Geração de sinal
   let sinal = "ESPERAR";
   
   // Sinal de CALL (Alta)
@@ -228,7 +219,7 @@ function gerarSinal() {
 }
 
 // =============================================
-// FUNÇÕES DE INTERFACE (MANTIDAS)
+// FUNÇÕES DE INTERFACE
 // =============================================
 function atualizarRelogio() {
   const now = new Date();
@@ -248,11 +239,19 @@ function atualizarInterface(sinal, score, criterios = []) {
   
   if (sinal === "CALL") {
     comandoElement.textContent = "CALL 📈";
-    document.getElementById("som-call").play().catch(e => console.log("Audio error:", e));
+    try {
+      document.getElementById("som-call").play();
+    } catch (e) {
+      console.log("Erro ao tocar som:", e);
+    }
   } 
   else if (sinal === "PUT") {
     comandoElement.textContent = "PUT 📉";
-    document.getElementById("som-put").play().catch(e => console.log("Audio error:", e));
+    try {
+      document.getElementById("som-put").play();
+    } catch (e) {
+      console.log("Erro ao tocar som:", e);
+    }
   } 
   else if (sinal === "ERRO") {
     comandoElement.textContent = "ERRO ❌";
@@ -291,18 +290,16 @@ function registrar(resultado) {
 }
 
 // =============================================
-// SIMULADOR DE DADOS (REMOVER EM PRODUÇÃO)
+// SIMULADOR DE DADOS PARA IDX M1
 // =============================================
 function gerarDadosSimulados() {
-  // Simulação de dados do IDX M1
   const ultimoClose = state.dadosHistoricos.length > 0 
     ? state.dadosHistoricos[state.dadosHistoricos.length - 1].close 
-    : 10000; // Valor inicial fictício
+    : 35000;
   
-  // Gerar flutuação realista
+  // Simular flutuações realistas (±2%)
   const variacao = (Math.random() - 0.5) * 0.02;
   const novoClose = ultimoClose * (1 + variacao);
-  const volume = 10000000 + Math.random() * 50000000;
   
   return {
     time: new Date().toISOString(),
@@ -310,61 +307,46 @@ function gerarDadosSimulados() {
     high: Math.max(ultimoClose, novoClose) * (1 + Math.random() * 0.01),
     low: Math.min(ultimoClose, novoClose) * (1 - Math.random() * 0.01),
     close: novoClose,
-    volume: volume
+    volume: 50000000 + Math.random() * 200000000
   };
 }
 
 // =============================================
-// CICLO PRINCIPAL (ATUALIZADO)
+// CICLO PRINCIPAL
 // =============================================
-async function analisarMercado() {
-  return analysisQueue = analysisQueue.then(async () => {
-    state.leituraEmAndamento = true;
+function analisarMercado() {
+  // Atualizar relógio
+  atualizarRelogio();
+  
+  // Gerar novo dado (simulação)
+  const novoDado = gerarDadosSimulados();
+  
+  // Atualizar dados históricos
+  state.dadosHistoricos.push(novoDado);
+  if (state.dadosHistoricos.length > 100) {
+    state.dadosHistoricos.shift();
+  }
+  
+  // Gerar sinal
+  const { sinal, score, criterios } = gerarSinal();
+  
+  // Atualizar interface
+  atualizarInterface(sinal, score, criterios);
+  
+  // Registrar sinal importante
+  if (sinal === "CALL" || sinal === "PUT") {
+    state.ultimos.unshift(`${state.ultimaAtualizacao} - ${sinal} (${Math.round(score)}%)`);
+    if (state.ultimos.length > 8) state.ultimos.pop();
     
-    try {
-      atualizarRelogio();
-      
-      // Em produção real, substituir por chamada de API
-      const novoDado = gerarDadosSimulados();
-      
-      state.dadosHistoricos.push(novoDado);
-      if (state.dadosHistoricos.length > 100) {
-        state.dadosHistoricos.shift();
-      }
-      
-      const { sinal, score, criterios } = gerarSinal();
-      atualizarInterface(sinal, score, criterios);
-      
-      if (sinal === "CALL" || sinal === "PUT") {
-        state.ultimos.unshift(`${state.ultimaAtualizacao} - ${sinal} (${Math.round(score)}%)`);
-        if (state.ultimos.length > 8) state.ultimos.pop();
-        
-        const ultimosElement = document.getElementById("ultimos");
-        if (ultimosElement) {
-          ultimosElement.innerHTML = state.ultimos.map(i => `<li>${i}</li>`).join("");
-        }
-      }
-      
-      state.consecutiveErrors = 0;
-    } catch (error) {
-      console.error("Erro na análise:", error);
-      state.consecutiveErrors++;
-      
-      if (state.consecutiveErrors > 5) {
-        clearInterval(state.intervaloTimer);
-        state.intervaloTimer = null;
-        atualizarInterface("ERRO", 0, ["Sistema pausado"]);
-      } else {
-        atualizarInterface("ERRO", 0, [`Erro: ${error.message}`]);
-      }
-    } finally {
-      state.leituraEmAndamento = false;
+    const ultimosElement = document.getElementById("ultimos");
+    if (ultimosElement) {
+      ultimosElement.innerHTML = state.ultimos.map(i => `<li>${i}</li>`).join("");
     }
-  });
+  }
 }
 
 // =============================================
-// CONTROLE DE TEMPO (MANTIDO)
+// CONTROLE DE TEMPO
 // =============================================
 function sincronizarTimer() {
   if (state.intervaloTimer) {
@@ -381,35 +363,35 @@ function sincronizarTimer() {
     
     if (state.timer <= 0) {
       clearInterval(state.intervaloTimer);
+      analisarMercado();
       state.timer = 60;
-      
-      analisarMercado().finally(() => {
-        sincronizarTimer();
-      });
+      sincronizarTimer();
     }
   }, 1000);
 }
 
 // =============================================
-// INICIALIZAÇÃO (MANTIDA)
+// INICIALIZAÇÃO
 // =============================================
 function iniciar() {
-  // Iniciar com dados históricos simulados
+  // Iniciar com dados históricos
   for (let i = 0; i < 50; i++) {
     state.dadosHistoricos.push({
       time: new Date(Date.now() - (50 - i) * 60000).toISOString(),
-      open: 10000 + Math.random() * 1000,
-      high: 10100 + Math.random() * 1000,
-      low: 9900 - Math.random() * 1000,
-      close: 10050 + Math.random() * 900,
-      volume: 10000000 + Math.random() * 50000000
+      open: 35000 + Math.random() * 1000,
+      high: 35200 + Math.random() * 1000,
+      low: 34800 - Math.random() * 1000,
+      close: 35000 + Math.random() * 1500,
+      volume: 50000000 + Math.random() * 200000000
     });
   }
   
+  // Iniciar processos
   sincronizarTimer();
   setInterval(atualizarRelogio, 1000);
   atualizarRelogio();
   
+  // Primeira análise
   setTimeout(analisarMercado, 1000);
 }
 
