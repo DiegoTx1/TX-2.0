@@ -1,151 +1,39 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô Stockity - Crypto IDX</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <meta charset="UTF-8">
+  <title>TX1 👨🏽‍💻💹</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <!-- SEÇÃO DE LOGIN -->
-        <section id="login-section" class="login-section">
-            <div class="login-box">
-                <img src="https://stockity.id/assets/images/logo.png" alt="Stockity Logo" class="logo">
-                <h2>Autenticação Stockity</h2>
-                <form id="login-form">
-                    <div class="input-group">
-                        <label for="stockity-email"><i class="fas fa-envelope"></i> Email</label>
-                        <input type="email" id="stockity-email" placeholder="seu@email.com" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="stockity-password"><i class="fas fa-lock"></i> Senha</label>
-                        <input type="password" id="stockity-password" placeholder="••••••••" required>
-                    </div>
-                    <button type="submit" id="connect-btn" class="btn">
-                        <i class="fa-solid fa-plug"></i> CONECTAR
-                    </button>
-                    <div id="login-status" class="status"></div>
-                </form>
-                <button id="debug-login-btn" class="btn btn-secondary">
-                    Tentar conexão alternativa
-                </button>
-            </div>
-        </section>
-
-        <!-- PAINEL PRINCIPAL (OCULTO INICIALMENTE) -->
-        <section id="main-panel" class="main-panel hidden">
-            <header>
-                <div class="header-info">
-                    <h1>CRYPTO IDX TRADER</h1>
-                    <div class="account-info">
-                        <span id="account-email"></span>
-                        <button id="logout-btn" class="btn btn-small"><i class="fas fa-sign-out-alt"></i></button>
-                    </div>
-                </div>
-                <div class="clock" id="hora">00:00:00</div>
-            </header>
-
-            <div class="dashboard">
-                <!-- SINAL ATUAL -->
-                <div class="card signal-card">
-                    <h2>SINAL ATUAL</h2>
-                    <div id="comando" class="signal-display esperar">ESPERAR ✋</div>
-                    <div id="score" class="confidence">CONFIANÇA: 0%</div>
-                    <div class="timer">
-                        <span>PRÓXIMA ANÁLISE EM:</span>
-                        <span id="timer">59</span>
-                    </div>
-                </div>
-
-                <!-- METRICAS -->
-                <div class="card metrics-card">
-                    <h2>CRYPTO IDX</h2>
-                    <div class="metrics-grid">
-                        <div class="metric">
-                            <span>Volatilidade</span>
-                            <span id="volatilidade">0%</span>
-                        </div>
-                        <div class="metric">
-                            <span>Exposição</span>
-                            <span id="exposicao">0%</span>
-                        </div>
-                        <div class="metric">
-                            <span>Acertos</span>
-                            <span id="win-count">0</span>
-                        </div>
-                        <div class="metric">
-                            <span>Erros</span>
-                            <span id="loss-count">0</span>
-                        </div>
-                        <div class="metric">
-                            <span>Taxa de Acerto</span>
-                            <span id="success-rate">0%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- INFORMAÇÕES DO ÍNDICE -->
-                <div class="card info-card">
-                    <h2>COMPOSIÇÃO DO CRYPTO IDX</h2>
-                    <ul id="composicao" class="composition">
-                        <li>Carregando...</li>
-                    </ul>
-                    <div class="rebalance">
-                        <span>Próximo Rebalanceamento:</span>
-                        <span id="rebalanceamento">-</span>
-                    </div>
-                </div>
-
-                <!-- ANÁLISE TÉCNICA -->
-                <div class="card analysis-card">
-                    <h2>ANÁLISE M1</h2>
-                    <div class="analysis-metrics">
-                        <div class="metric">
-                            <span>Tendência</span>
-                            <span id="m1-trend">-</span>
-                        </div>
-                        <div class="metric">
-                            <span>RSI</span>
-                            <span id="m1-rsi">-</span>
-                        </div>
-                        <div class="metric">
-                            <span>Volume</span>
-                            <span id="m1-volume">-</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- HISTÓRICO DE SINAIS -->
-                <div class="card history-card">
-                    <h2>ÚLTIMOS SINAIS</h2>
-                    <ul id="ultimos" class="signals-history">
-                        <li class="signal-wait">✋ --:--:-- - AGUARDANDO</li>
-                        <li class="signal-wait">✋ --:--:-- - AGUARDANDO</li>
-                        <li class="signal-wait">✋ --:--:-- - AGUARDANDO</li>
-                        <li class="signal-wait">✋ --:--:-- - AGUARDANDO</li>
-                        <li class="signal-wait">✋ --:--:-- - AGUARDANDO</li>
-                    </ul>
-                </div>
-
-                <!-- CONTROLES -->
-                <div class="card controls-card">
-                    <h2>CONTROLES</h2>
-                    <div class="controls">
-                        <button id="manual-call" class="btn-call"><i class="fas fa-arrow-up"></i> REGISTRAR CALL</button>
-                        <button id="manual-put" class="btn-put"><i class="fas fa-arrow-down"></i> REGISTRAR PUT</button>
-                        <button id="reset-stats" class="btn-reset"><i class="fas fa-redo"></i> RESETAR ESTATÍSTICAS</button>
-                    </div>
-                </div>
-            </div>
-        </section>
+  <div class="container">
+    <h1>TX1 👨🏽‍💻💹</h1>
+    <div class="painel-central">
+      <div class="coluna-esquerda">
+        <p>Comando Atual: <span id="comando" class="esperar">ESPERAR</span></p>
+        <p>Score de Confiança: <span id="score">--%</span></p>
+        <p>Próxima Leitura em: <span id="timer">60</span>s</p>
+        <p>Última Análise: <span id="hora">--:--:--</span></p>
+        <div>
+          <h3>Critérios Técnicos</h3>
+          <ul id="criterios"></ul>
+        </div>
+        <div>
+          <button onclick="registrar('WIN')">WIN</button>
+          <button onclick="registrar('LOSS')">LOSS</button>
+          <p>Histórico: <span id="historico">0 WIN / 0 LOSS</span></p>
+        </div>
+      </div>
+      <div class="coluna-direita">
+        <h3>Últimos Sinais</h3>
+        <ul id="ultimos"></ul>
+      </div>
     </div>
-
-    <!-- AUDIOS (OCULTOS) -->
-    <audio id="som-call" src="https://www.soundjay.com/buttons/sounds/button-09.mp3" preload="auto"></audio>
-    <audio id="som-put" src="https://www.soundjay.com/buttons/sounds/button-09.mp3" preload="auto"></audio>
-
-    <script src="script.js"></script>
+    <iframe class="grafico" src="https://s.tradingview.com/widgetembed/?symbol=FX:EURUSD&interval=1&theme=dark"
+      width="100%" height="350" frameborder="0"></iframe>
+  </div>
+  <audio id="som-call" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto"></audio>
+  <audio id="som-put" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+  <script src="script.js"></script>
 </body>
 </html>
