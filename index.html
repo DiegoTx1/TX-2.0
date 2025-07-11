@@ -1,76 +1,12 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>TX1 👨🏽‍💻💹 | IDX M1</title>
-  <link rel="stylesheet" href="style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Robô Trading EUR/USD</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <div class="painel-controle">
-      <h1>TX1 👨🏽‍💻💹 | IDX M1</h1>
-      
-      <div class="status-container">
-        <div class="status-item">
-          <span class="status-label">Comando Atual</span>
-          <span id="comando" class="esperar">ESPERAR</span>
-        </div>
-        
-        <div class="status-item">
-          <span class="status-label">Score de Confiança</span>
-          <span id="score" class="status-value">--%</span>
-        </div>
-        
-        <div class="status-item">
-          <span class="status-label">Próxima Leitura</span>
-          <span id="timer" class="status-value">60s</span>
-        </div>
-        
-        <div class="status-item">
-          <span class="status-label">Última Análise</span>
-          <span id="hora" class="status-value">--:--:--</span>
-        </div>
-      </div>
-      
-      <div class="progresso">
-        <div id="barra-progresso" class="barra-progresso" style="width: 0%"></div>
-      </div>
-      
-      <div class="secao">
-        <h3>📊 Critérios Técnicos</h3>
-        <ul id="criterios">
-          <li>Inicializando sistema de análise...</li>
-        </ul>
-      </div>
-      
-      <div class="secao">
-        <h3>📈 Últimos Sinais</h3>
-        <ul id="ultimos">
-          <li>Nenhum sinal registrado ainda</li>
-        </ul>
-      </div>
-      
-      <div class="secao">
-        <h3>📝 Registro de Operações</h3>
-        <div class="botoes">
-          <button id="btn-win" onclick="registrar('WIN')">WIN ✅</button>
-          <button id="btn-loss" onclick="registrar('LOSS')">LOSS ❌</button>
-        </div>
-        <span id="historico">0 WIN / 0 LOSS</span>
-      </div>
-    </div>
-    
-    <div class="grafico-container">
-      <div class="info-grafico">IDX M1 - Gráfico em Tempo Real</div>
-      <iframe class="grafico" 
-              src="https://s.tradingview.com/widgetembed/?symbol=CRYPTOCAP:IDX&interval=1&theme=dark&style=1&locale=br&toolbar_bg=0a121f&enable_publishing=false&hide_top_toolbar=true&hide_legend=false&save_image=false"
-              frameborder="0"></iframe>
-    </div>
-  </div>
-  
-  <audio id="som-call" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto"></audio>
-  <audio id="som-put" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
-  
-  <script src="script.js"></script>
+    <div id="app"></div>
+    <script src="script.js"></script>
 </body>
 </html>
