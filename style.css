@@ -1,102 +1,64 @@
+.call { color: #00FF00; }
+.put { color: #FF0000; }
+.esperar { color: #CCCCCC; }
+.erro { color: #FF9900; }
+
+#timer, #hora {
+  font-weight: bold;
+}
 body {
-    font-family: Arial, sans-serif;
-    background-color: #f0f0f0;
-    margin: 0;
-    padding: 20px;
-    color: #333;
+  background-color: #000;
+  color: cyan;
+  font-family: monospace;
+  text-align: center;
 }
-
-#app {
-    max-width: 600px;
-    margin: 0 auto;
-    background: white;
-    padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+.container {
+  max-width: 900px;
+  margin: auto;
+  padding-top: 20px;
 }
-
-h1 {
-    text-align: center;
-    color: #333;
-    margin-top: 0;
+button {
+  margin: 5px;
+  padding: 8px 20px;
+  font-size: 16px;
+  background-color: #111;
+  color: cyan;
+  border: 1px solid cyan;
+  border-radius: 4px;
+  cursor: pointer;
 }
-
-#status-container {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
+button:hover {
+  background-color: #003333;
 }
-
+ul { list-style: none; padding: 0; }
+.painel-central {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.coluna-esquerda, .coluna-direita {
+  flex: 1;
+  text-align: left;
+  padding: 15px;
+  border: 1px solid #00cccc;
+  border-radius: 8px;
+  background-color: #001a1a;
+}
+.grafico {
+  margin-top: 20px;
+  border: 1px solid #00cccc;
+  border-radius: 8px;
+}
 #comando {
-    font-size: 24px;
-    font-weight: bold;
-    padding: 15px;
-    border-radius: 5px;
-    min-width: 100px;
-    text-align: center;
-    margin-bottom: 10px;
-    flex-grow: 1;
-    margin-right: 10px;
+  font-weight: bold;
+  font-size: 1.2em;
 }
-
-#info {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-width: 150px;
-    font-size: 14px;
+.sinal-alerta {
+  animation: piscar 1s infinite;
 }
-
-#score {
-    font-size: 18px;
-    margin-bottom: 5px;
-    font-weight: bold;
-}
-
-#tendencia-container {
-    margin-bottom: 20px;
-    text-align: center;
-}
-
-#ultimos-container, #criterios-container {
-    margin-top: 20px;
-}
-
-#ultimos, #criterios {
-    list-style: none;
-    padding: 0;
-}
-
-#ultimos li, #criterios li {
-    padding: 5px 0;
-    border-bottom: 1px solid #eee;
-}
-
-.call {
-    background: linear-gradient(to right, #4CAF50, #2E7D32);
-    color: white;
-}
-
-.put {
-    background: linear-gradient(to right, #F44336, #C62828);
-    color: white;
-}
-
-.esperar {
-    background: linear-gradient(to right, #2196F3, #1565C0);
-    color: white;
-}
-
-.erro {
-    background: #FF9800;
-    color: white;
-}
-
-#timer[style*="color: red"] {
-    color: red !important;
-}
-
-.sinal-sonoro {
-    display: none;
+@keyframes piscar {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
