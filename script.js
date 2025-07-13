@@ -32,7 +32,8 @@ const state = {
   superTrendCache: [],
   atrGlobal: 0,
   rsiHistory: [],
-  cooldown: 0
+  cooldown: 0,
+  ultimoDadosLength: 0  // Adicionado para controle do cache MACD
 };
 
 const CONFIG = {
@@ -40,7 +41,7 @@ const CONFIG = {
     TWELVE_DATA: "https://api.twelvedata.com"
   },
   PARES: {
-    CRYPTO_IDX: "BTC/USD"  // Usando BTC como proxy para índice cripto
+    CRYPTO_IDX: "BTC/USD"
   },
   PERIODOS: {
     RSI: 9,
@@ -62,8 +63,8 @@ const CONFIG = {
   LIMIARES: {
     SCORE_ALTO: 85,
     SCORE_MEDIO: 70,
-    RSI_OVERBOUGHT: 68,    // Ajustado para maior sensibilidade
-    RSI_OVERSOLD: 32,      // Ajustado para maior sensibilidade
+    RSI_OVERBOUGHT: 68,
+    RSI_OVERSOLD: 32,
     STOCH_OVERBOUGHT: 85,
     STOCH_OVERSOLD: 15,
     VARIACAO_LATERAL: 0.005,
@@ -136,7 +137,6 @@ function calcularZonasPreco(dados, periodo = 50) {
   const highs = slice.map(v => v.high);
   const lows = slice.map(v => v.low);
   
-  // Usar médias dos extremos para evitar sensibilidade excessiva
   const resistencia = calcularMedia.simples(
     highs.sort((a,b) => b-a).slice(0, Math.floor(periodo/10)), 
     Math.floor(periodo/10)
@@ -170,7 +170,7 @@ function gerarSinal(indicadores, divergencias, lateral) {
     velaAtual
   } = indicadores;
   
-  // Filtro de volume (ignorar sinais com volume baixo)
+  // Filtro de volume
   const volumeMedio = calcularMedia.simples(
     state.dadosHistoricos.slice(-20).map(v => v.volume), 20
   );
@@ -183,7 +183,7 @@ function gerarSinal(indicadores, divergencias, lateral) {
   state.suporteKey = zonas.suporte;
   state.resistenciaKey = zonas.resistencia;
   
-  // Priorizar tendência forte em cripto
+  // Priorizar tendência forte
   if (tendencia.forca > 80) {
     if (tendencia.tendencia === "FORTE_ALTA" && close > emaCurta && macd.histograma > 0) {
       return "CALL";
@@ -193,7 +193,7 @@ function gerarSinal(indicadores, divergencias, lateral) {
     }
   }
 
-  // Breakout em criptomoedas
+  // Breakout
   const variacao = state.resistenciaKey - state.suporteKey;
   const limiteBreakout = variacao * 0.05;
   
@@ -205,7 +205,7 @@ function gerarSinal(indicadores, divergencias, lateral) {
     return "PUT";
   }
   
-  // Divergências em RSI (corrigida a lógica de sinais)
+  // Divergências em RSI (lógica corrigida)
   if (divergencias.divergenciaRSI) {
     if (divergencias.tipoDivergencia === "ALTA" && close > state.suporteKey) {
       return "CALL";
@@ -272,6 +272,7 @@ function atualizarRelogio() {
 }
 
 function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
+  if (!document.getElementById("comando")) return;
   if (!state.marketOpen) return;
   
   const comandoElement = document.getElementById("comando");
@@ -311,7 +312,7 @@ const calcularMedia = {
   },
 
   exponencial: (dados, periodo) => {
-    if (!Array.isArray(dados) || dados.length < periodo) return [];
+    if (!Array.isArray(dados) || dados.length < periodo) return Array(dados.length).fill(null);
     
     const k = 2 / (periodo + 1);
     let ema = calcularMedia.simples(dados.slice(0, periodo), periodo);
@@ -379,7 +380,7 @@ function calcularStochastic(highs, lows, closes,
       const highestHigh = Math.max(...sliceHigh);
       const lowestLow = Math.min(...sliceLow);
       const range = highestHigh - lowestLow;
-      const k = range !== 0 ? ((closes[i] - lowestLow) / range) * 100 : 50;
+      const k = range !== 0 ? ((closes[i] - lowestLow) / range) * 100 : 0; // Corrigido para 0
       kValues.push(k);
     }
     
@@ -507,9 +508,8 @@ function calcularSuperTrend(dados, periodo = CONFIG.PERIODOS.SUPERTREND, multipl
   try {
     if (dados.length < periodo) return { direcao: 0, valor: 0 };
     
-    if (state.atrGlobal === 0) {
-      state.atrGlobal = calcularATR(dados, periodo);
-    }
+    // Sempre recalcular ATR
+    state.atrGlobal = calcularATR(dados, periodo);
     
     const current = dados[dados.length - 1];
     const hl2 = (current.high + current.low) / 2;
@@ -589,13 +589,14 @@ function detectarDivergencias(closes, rsis, highs, lows) {
     let divergenciaRegularAlta = false;
     let divergenciaRegularBaixa = false;
     
-    // CORREÇÃO: Lógica invertida fixada
+    // Lógica corrigida
     if (priceHighs.length >= 2 && rsiHighs.length >= 2) {
       const lastPriceHigh = priceHighs[priceHighs.length - 1];
       const prevPriceHigh = priceHighs[priceHighs.length - 2];
       const lastRsiHigh = rsiHighs[rsiHighs.length - 1];
       const prevRsiHigh = rsiHighs[rsiHighs.length - 2];
       
+      // Divergência de baixa: Preço mais alto, RSI mais baixo
       if (lastPriceHigh.value > prevPriceHigh.value && 
           lastRsiHigh.value < prevRsiHigh.value) {
         divergenciaRegularBaixa = true;
@@ -608,6 +609,7 @@ function detectarDivergencias(closes, rsis, highs, lows) {
       const lastRsiLow = rsiLows[rsiLows.length - 1];
       const prevRsiLow = rsiLows[rsiLows.length - 2];
       
+      // Divergência de alta: Preço mais baixo, RSI mais alto
       if (lastPriceLow.value < prevPriceLow.value && 
           lastRsiLow.value > prevRsiLow.value) {
         divergenciaRegularAlta = true;
@@ -660,11 +662,9 @@ async function analisarMercado() {
     const macd = calcularMACD(closes);
     const atr = calcularATR(dados);
     
-    // Preencher histórico de RSI
-    state.rsiHistory = [];
-    for (let i = CONFIG.PERIODOS.RSI; i < closes.length; i++) {
-      state.rsiHistory.push(calcularRSI(closes.slice(0, i+1)));
-    }
+    // Otimizar histórico de RSI
+    state.rsiHistory.push(rsi);
+    if (state.rsiHistory.length > 50) state.rsiHistory.shift();
     
     const divergencias = detectarDivergencias(closes, state.rsiHistory, highs, lows);
     const tendencia = avaliarTendencia(ema5, ema13);
@@ -690,14 +690,14 @@ async function analisarMercado() {
     
     const score = calcularScore(sinal, indicadores, divergencias);
 
-    // Cooldown vinculado ao score
+    // Cooldown otimizado
     if (sinal !== "ESPERAR" && state.cooldown <= 0 && score > CONFIG.LIMIARES.SCORE_MEDIO) {
       state.cooldown = (score > CONFIG.LIMIARES.SCORE_ALTO) ? 3 : 2;
+      sinal = "ESPERAR"; // Forçar espera no primeiro sinal
     } 
     
     if (state.cooldown > 0) {
       state.cooldown--;
-      sinal = "ESPERAR";
     }
 
     state.ultimoSinal = sinal;
@@ -735,7 +735,9 @@ async function analisarMercado() {
     
     const criteriosElement = document.getElementById("criterios");
     if (criteriosElement) {
-      criteriosElement.innerHTML = `<li>ERRO: ${e.message}</li>`;
+      criteriosElement.innerHTML = `<li>ERRO: ${e.message}</li>
+                                   <li>Dados: ${state.dadosHistoricos?.length || 0} velas</li>
+                                   <li>API: ${API_KEYS[currentKeyIndex]}</li>`;
     }
     
     if (++state.tentativasErro > 3) setTimeout(() => location.reload(), 10000);
@@ -752,7 +754,15 @@ async function obterDadosTwelveData() {
     const apiKey = API_KEYS[currentKeyIndex];
     const url = `${CONFIG.API_ENDPOINTS.TWELVE_DATA}/time_series?symbol=${CONFIG.PARES.CRYPTO_IDX}&interval=1min&outputsize=100&apikey=${apiKey}`;
     
-    const response = await fetch(url);
+    // Timeout para evitar bloqueios
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    
+    const response = await fetch(url, {
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
       throw new Error(`Falha na API: ${response.status}`);
