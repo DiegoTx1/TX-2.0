@@ -1,5 +1,5 @@
 // =============================================
-// CONFIGURAÇÕES GLOBAIS (ATUALIZADAS PARA EURUSD)
+// CONFIGURAÇÕES GLOBAIS (ATUALIZADAS PARA CRYPTO IDX)
 // =============================================
 const state = {
   ultimos: [],
@@ -17,7 +17,6 @@ const state = {
   dadosHistoricos: [],
   resistenciaKey: 0,
   suporteKey: 0,
-  // Inicialização de caches
   rsiCache: { avgGain: 0, avgLoss: 0, initialized: false },
   emaCache: {
     ema5: null,
@@ -41,7 +40,7 @@ const CONFIG = {
     TWELVE_DATA: "https://api.twelvedata.com"
   },
   PARES: {
-    FOREX_IDX: "EUR/USD"
+    CRYPTO_IDX: "BTC/USD"  // Usando BTC como proxy para índice cripto
   },
   PERIODOS: {
     RSI: 9,
@@ -63,13 +62,13 @@ const CONFIG = {
   LIMIARES: {
     SCORE_ALTO: 85,
     SCORE_MEDIO: 70,
-    RSI_OVERBOUGHT: 70,
-    RSI_OVERSOLD: 30,
+    RSI_OVERBOUGHT: 75,    // Mais sensível para cripto
+    RSI_OVERSOLD: 25,      // Mais sensível para cripto
     STOCH_OVERBOUGHT: 85,
     STOCH_OVERSOLD: 15,
-    VARIACAO_LATERAL: 0.0003,
-    ATR_LIMIAR: 0.00015,
-    LATERALIDADE_LIMIAR: 0.0003
+    VARIACAO_LATERAL: 0.005,  // Aumentado para cripto
+    ATR_LIMIAR: 0.015,        // Aumentado para volatilidade cripto
+    LATERALIDADE_LIMIAR: 0.005
   },
   PESOS: {
     RSI: 1.7,
@@ -82,51 +81,17 @@ const CONFIG = {
 };
 
 // =============================================
-// GERENCIADOR DE CHAVES API (SUA CHAVE INTEGRADA)
+// GERENCIADOR DE CHAVES API
 // =============================================
 const API_KEYS = [
-  "0105e6681b894e0185704171c53f5075"  // SUA CHAVE AQUI
+  "9cf795b2a4f14d43a049ca935d174ebb",
+  "0105e6681b894e0185704171c53f5075"
 ];
+let currentKeyIndex = 0;
+let errorCount = 0;
 
 // =============================================
-// SISTEMA DE PROXY ATUALIZADO (SEM LIMITAÇÕES)
-// =============================================
-async function obterDadosTwelveData() {
-  try {
-    const apiKey = API_KEYS[0];
-    const PROXY_URL = "https://corsproxy.io/?";
-    const API_URL = `${CONFIG.API_ENDPOINTS.TWELVE_DATA}/time_series?symbol=${CONFIG.PARES.FOREX_IDX}&interval=1min&outputsize=100&apikey=${apiKey}`;
-    
-    const response = await fetch(PROXY_URL + encodeURIComponent(API_URL));
-    
-    if (!response.ok) {
-      throw new Error(`Falha na API: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (data.status === 'error') {
-      throw new Error(data.message || `Erro Twelve Data: ${data.code}`);
-    }
-    
-    const valores = data.values ? data.values.reverse() : [];
-    
-    return valores.map(item => ({
-      time: item.datetime,
-      open: parseFloat(item.open),
-      high: parseFloat(item.high),
-      low: parseFloat(item.low),
-      close: parseFloat(item.close),
-      volume: parseFloat(item.volume) || 1
-    }));
-  } catch (e) {
-    console.error("Erro ao obter dados:", e);
-    throw e;
-  }
-}
-
-// =============================================
-// SISTEMA DE TENDÊNCIA OTIMIZADO PARA FOREX
+// SISTEMA DE TENDÊNCIA OTIMIZADO PARA CRIPTO
 // =============================================
 function avaliarTendencia(ema5, ema13) {
   const diff = ema5 - ema13;
@@ -148,7 +113,7 @@ function avaliarTendencia(ema5, ema13) {
 }
 
 // =============================================
-// DETECÇÃO DE LATERALIDADE (CHOPP INDEX)
+// DETECÇÃO DE LATERALIDADE (AJUSTADO PARA CRIPTO)
 // =============================================
 function detectarLateralidade(closes, periodo = CONFIG.PERIODOS.ANALISE_LATERAL, limiar = CONFIG.LIMIARES.LATERALIDADE_LIMIAR) {
   const variacoes = [];
@@ -162,7 +127,7 @@ function detectarLateralidade(closes, periodo = CONFIG.PERIODOS.ANALISE_LATERAL,
 }
 
 // =============================================
-// CÁLCULO DINÂMICO DE SUPORTE/RESISTÊNCIA
+// CÁLCULO DE SUPORTE/RESISTÊNCIA PARA CRIPTO
 // =============================================
 function calcularZonasPreco(dados, periodo = 50) {
   if (dados.length < periodo) periodo = dados.length;
@@ -177,7 +142,7 @@ function calcularZonasPreco(dados, periodo = 50) {
 }
 
 // =============================================
-// GERADOR DE SINAIS DE ALTA PRECISÃO PARA EURUSD
+// GERADOR DE SINAIS OTIMIZADO PARA CRIPTO
 // =============================================
 function gerarSinal(indicadores, divergencias, lateral) {
   const {
@@ -196,12 +161,7 @@ function gerarSinal(indicadores, divergencias, lateral) {
   state.suporteKey = zonas.suporte;
   state.resistenciaKey = zonas.resistencia;
   
-  // Forçar espera em lateralidade
-  if (lateral) {
-    return "ESPERAR";
-  }
-
-  // Priorizar tendência forte
+  // Priorizar tendência forte em cripto
   if (tendencia.forca > 80) {
     if (tendencia.tendencia === "FORTE_ALTA" && close > emaCurta && macd.histograma > 0) {
       return "CALL";
@@ -211,34 +171,9 @@ function gerarSinal(indicadores, divergencias, lateral) {
     }
   }
 
-  if (tendencia.tendencia === "FORTE_ALTA") {
-    const condicoesCompra = [
-      close > emaCurta,
-      macd.histograma > 0,
-      stoch.k > 60,
-      close > superTrend.valor && superTrend.direcao > 0
-    ];
-    
-    if (condicoesCompra.filter(Boolean).length >= 3) {
-      return "CALL";
-    }
-  }
-  
-  if (tendencia.tendencia === "FORTE_BAIXA") {
-    const condicoesVenda = [
-      close < emaCurta,
-      macd.histograma < 0,
-      stoch.k < 40,
-      close < superTrend.valor && superTrend.direcao < 0
-    ];
-    
-    if (condicoesVenda.filter(Boolean).length >= 3) {
-      return "PUT";
-    }
-  }
-  
+  // Breakout em criptomoedas
   const variacao = state.resistenciaKey - state.suporteKey;
-  const limiteBreakout = variacao * 0.1;
+  const limiteBreakout = variacao * 0.05;  // Mais sensível para cripto
   
   if (close > (state.resistenciaKey + limiteBreakout)) {
     return "CALL";
@@ -248,6 +183,7 @@ function gerarSinal(indicadores, divergencias, lateral) {
     return "PUT";
   }
   
+  // Divergências em RSI (muito importantes em cripto)
   if (divergencias.divergenciaRSI) {
     if (divergencias.tipoDivergencia === "ALTA" && close > state.suporteKey) {
       return "CALL";
@@ -258,6 +194,7 @@ function gerarSinal(indicadores, divergencias, lateral) {
     }
   }
   
+  // Condições específicas para cripto
   if (rsi < 25 && close > emaMedia) {
     return "CALL";
   }
@@ -270,7 +207,7 @@ function gerarSinal(indicadores, divergencias, lateral) {
 }
 
 // =============================================
-// CALCULADOR DE CONFIANÇA PRECISO (OTIMIZADO)
+// CALCULADOR DE CONFIANÇA PARA CRIPTO
 // =============================================
 function calcularScore(sinal, indicadores, divergencias) {
   let score = 65;
@@ -282,7 +219,8 @@ function calcularScore(sinal, indicadores, divergencias) {
     posicaoMedia: sinal === "CALL" && indicadores.close > indicadores.emaMedia ? 15 : 
                   sinal === "PUT" && indicadores.close < indicadores.emaMedia ? 15 : 0,
     superTrend: sinal === "CALL" && indicadores.close > indicadores.superTrend.valor ? 10 :
-                sinal === "PUT" && indicadores.close < indicadores.superTrend.valor ? 10 : 0
+                sinal === "PUT" && indicadores.close < indicadores.superTrend.valor ? 10 : 0,
+    volatilidade: (indicadores.atr / indicadores.close) > 0.02 ? 10 : 0  // Bônus para alta volatilidade
   };
   
   score += Object.values(fatores).reduce((sum, val) => sum + val, 0);
@@ -311,24 +249,6 @@ function atualizarRelogio() {
   }
 }
 
-function tocarSom(sinal) {
-  try {
-    const audio = new Audio();
-    
-    if (sinal === "CALL") {
-      audio.src = "https://www.soundjay.com/buttons/sounds/button-09.mp3";
-    } else if (sinal === "PUT") {
-      audio.src = "https://www.soundjay.com/buttons/sounds/button-08.mp3";
-    } else {
-      return;
-    }
-    
-    audio.play().catch(e => console.log("Erro ao tocar som:", e));
-  } catch (e) {
-    console.error("Erro no player de áudio:", e);
-  }
-}
-
 function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
   if (!state.marketOpen) return;
   
@@ -337,15 +257,9 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
     comandoElement.textContent = sinal;
     comandoElement.className = sinal.toLowerCase();
     
-    if (sinal === "CALL") {
-      comandoElement.textContent += " 📈";
-      tocarSom("CALL");
-    } else if (sinal === "PUT") {
-      comandoElement.textContent += " 📉";
-      tocarSom("PUT");
-    } else if (sinal === "ESPERAR") {
-      comandoElement.textContent += " ✋";
-    }
+    if (sinal === "CALL") comandoElement.textContent += " 📈";
+    else if (sinal === "PUT") comandoElement.textContent += " 📉";
+    else if (sinal === "ESPERAR") comandoElement.textContent += " ✋";
   }
   
   const scoreElement = document.getElementById("score");
@@ -365,7 +279,7 @@ function atualizarInterface(sinal, score, tendencia, forcaTendencia) {
 }
 
 // =============================================
-// INDICADORES TÉCNICOS (AJUSTADOS PARA FOREX)
+// INDICADORES TÉCNICOS (OTIMIZADOS PARA CRIPTO)
 // =============================================
 const calcularMedia = {
   simples: (dados, periodo) => {
@@ -678,7 +592,7 @@ function detectarDivergencias(closes, rsis, highs, lows) {
 }
 
 // =============================================
-// CORE DO SISTEMA (ATUALIZADO PARA EURUSD)
+// CORE DO SISTEMA (ATUALIZADO PARA CRYPTO IDX)
 // =============================================
 async function analisarMercado() {
   if (state.leituraEmAndamento) return;
@@ -710,8 +624,9 @@ async function analisarMercado() {
     const rsi = calcularRSI(closes);
     const stoch = calcularStochastic(highs, lows, closes);
     const macd = calcularMACD(closes);
+    const atr = calcularATR(dados);
     
-    // Preencher histórico de RSI CORRETAMENTE
+    // Preencher histórico de RSI
     state.rsiHistory = [];
     for (let i = CONFIG.PERIODOS.RSI; i < closes.length; i++) {
       state.rsiHistory.push(calcularRSI(closes.slice(0, i+1)));
@@ -732,7 +647,8 @@ async function analisarMercado() {
       emaMedia: ema13,
       close: velaAtual.close,
       superTrend,
-      tendencia
+      tendencia,
+      atr
     };
 
     let sinal = gerarSinal(indicadores, divergencias, lateral);
@@ -757,14 +673,15 @@ async function analisarMercado() {
     if (criteriosElement) {
       criteriosElement.innerHTML = `
         <li>📊 Tendência: ${state.tendenciaDetectada} (${state.forcaTendencia}%)</li>
-        <li>💰 Preço: ${indicadores.close.toFixed(5)}</li>
-        <li>📉 RSI: ${rsi.toFixed(2)} ${rsi < 30 ? '🔻' : rsi > 70 ? '🔺' : ''}</li>
-        <li>📊 MACD: ${macd.histograma > 0 ? '+' : ''}${macd.histograma.toFixed(6)} ${macd.histograma > 0 ? '🟢' : '🔴'}</li>
+        <li>💰 Preço: ${indicadores.close.toFixed(2)}</li>
+        <li>📉 RSI: ${rsi.toFixed(2)} ${rsi < CONFIG.LIMIARES.RSI_OVERSOLD ? '🔻' : rsi > CONFIG.LIMIARES.RSI_OVERBOUGHT ? '🔺' : ''}</li>
+        <li>📊 MACD: ${macd.histograma > 0 ? '+' : ''}${macd.histograma.toFixed(4)} ${macd.histograma > 0 ? '🟢' : '🔴'}</li>
         <li>📈 Stochastic: ${stoch.k.toFixed(2)}/${stoch.d.toFixed(2)}</li>
-        <li>📌 Médias: EMA5 ${ema5.toFixed(5)} | EMA13 ${ema13.toFixed(5)}</li>
-        <li>📊 Suporte: ${state.suporteKey.toFixed(5)} | Resistência: ${state.resistenciaKey.toFixed(5)}</li>
+        <li>📌 Médias: EMA5 ${ema5.toFixed(2)} | EMA13 ${ema13.toFixed(2)}</li>
+        <li>📊 Suporte: ${state.suporteKey.toFixed(2)} | Resistência: ${state.resistenciaKey.toFixed(2)}</li>
         <li>⚠️ Divergência: ${divergencias.tipoDivergencia}</li>
-        <li>🚦 SuperTrend: ${superTrend.direcao > 0 ? 'ALTA' : 'BAIXA'} (${superTrend.valor.toFixed(5)})</li>
+        <li>🚦 SuperTrend: ${superTrend.direcao > 0 ? 'ALTA' : 'BAIXA'} (${superTrend.valor.toFixed(2)})</li>
+        <li>⚡ Volatilidade (ATR): ${atr.toFixed(4)}</li>
         <li>🔄 Lateral: ${lateral ? 'SIM' : 'NÃO'}</li>
       `;
     }
@@ -787,6 +704,49 @@ async function analisarMercado() {
     if (++state.tentativasErro > 3) setTimeout(() => location.reload(), 10000);
   } finally {
     state.leituraEmAndamento = false;
+  }
+}
+
+// =============================================
+// FUNÇÕES DE DADOS (TWELVE DATA API)
+// =============================================
+async function obterDadosTwelveData() {
+  try {
+    const apiKey = API_KEYS[currentKeyIndex];
+    const url = `${CONFIG.API_ENDPOINTS.TWELVE_DATA}/time_series?symbol=${CONFIG.PARES.CRYPTO_IDX}&interval=1min&outputsize=100&apikey=${apiKey}`;
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`Falha na API: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.status === 'error') {
+      throw new Error(data.message || `Erro Twelve Data: ${data.code}`);
+    }
+    
+    const valores = data.values ? data.values.reverse() : [];
+    
+    return valores.map(item => ({
+      time: item.datetime,
+      open: parseFloat(item.open),
+      high: parseFloat(item.high),
+      low: parseFloat(item.low),
+      close: parseFloat(item.close),
+      volume: parseFloat(item.volume) || 1
+    }));
+  } catch (e) {
+    console.error("Erro ao obter dados:", e);
+    
+    errorCount++;
+    if (errorCount >= 2) {
+      currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+      errorCount = 0;
+    }
+    
+    throw e;
   }
 }
 
@@ -826,31 +786,101 @@ function sincronizarTimer() {
 // =============================================
 function iniciarAplicativo() {
   // Criar interface
-  const appContainer = document.getElementById('app');
-  appContainer.innerHTML = `
-    <h1>Robô de Trading EUR/USD</h1>
-    <div id="status-container">
-      <div id="comando">--</div>
-      <div id="info">
-        <div id="score">--</div>
-        <div>Atualização: <span id="hora">--:--:--</span></div>
-        <div>Próxima: <span id="timer">0:60</span></div>
+  const container = document.createElement('div');
+  container.style = "font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 20px auto; padding: 25px; background: #1e1f29; border-radius: 15px; color: #f5f6fa; box-shadow: 0 8px 32px rgba(0,0,0,0.3);";
+  container.innerHTML = `
+    <h1 style="text-align: center; color: #6c5ce7; margin-bottom: 30px; font-size: 28px;">
+      <i class="fab fa-bitcoin"></i> Robô de Trading CRYPTO IDX
+    </h1>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-bottom: 30px;">
+      <div id="comando" style="font-size: 32px; font-weight: 700; padding: 25px; border-radius: 12px; text-align: center; background: #2c2d3a; display: flex; align-items: center; justify-content: center; min-height: 120px;">
+        --
+      </div>
+      
+      <div style="display: flex; flex-direction: column; justify-content: center; background: #2c2d3a; padding: 20px; border-radius: 12px;">
+        <div id="score" style="font-size: 22px; font-weight: 600; margin-bottom: 15px; text-align: center;">--</div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+          <div style="text-align: center;">
+            <div style="font-size: 14px; opacity: 0.8;">Atualização</div>
+            <div id="hora" style="font-size: 18px; font-weight: 600;">--:--:--</div>
+          </div>
+          
+          <div style="text-align: center;">
+            <div style="font-size: 14px; opacity: 0.8;">Próxima Análise</div>
+            <div id="timer" style="font-size: 18px; font-weight: 600;">0:60</div>
+          </div>
+        </div>
       </div>
     </div>
-    <div id="tendencia-container">
-      <h3>Tendência: <span id="tendencia">--</span> (<span id="forca-tendencia">--</span>%)</h3>
+    
+    <div style="background: #2c2d3a; padding: 20px; border-radius: 12px; margin-bottom: 25px;">
+      <h3 style="margin-top: 0; margin-bottom: 15px; color: #6c5ce7; display: flex; align-items: center;">
+        <i class="fas fa-chart-line"></i> Tendência: 
+        <span id="tendencia" style="margin-left: 8px;">--</span> 
+        <span id="forca-tendencia" style="margin-left: 5px;">--</span>%
+      </h3>
+      
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+        <div style="background: #3a3b4a; padding: 15px; border-radius: 8px;">
+          <h4 style="margin-top: 0; margin-bottom: 10px; color: #a29bfe;">Últimos Sinais</h4>
+          <ul id="ultimos" style="list-style: none; padding: 0; margin: 0;"></ul>
+        </div>
+        
+        <div style="background: #3a3b4a; padding: 15px; border-radius: 8px;">
+          <h4 style="margin-top: 0; margin-bottom: 10px; color: #a29bfe;">Indicadores</h4>
+          <ul id="criterios" style="list-style: none; padding: 0; margin: 0;"></ul>
+        </div>
+      </div>
     </div>
-    <div id="ultimos-container">
-      <h3>Últimos Sinais</h3>
-      <ul id="ultimos"></ul>
+    
+    <div style="text-align: center; font-size: 14px; opacity: 0.7; padding-top: 15px; border-top: 1px solid #3a3b4a;">
+      CRYPTO IDX - Análise em tempo real | Atualizado: <span id="ultima-atualizacao">${new Date().toLocaleTimeString()}</span>
     </div>
-    <div id="criterios-container">
-      <h3>Indicadores</h3>
-      <ul id="criterios"></ul>
-    </div>
-    <div class="sinal-sonoro"></div>
   `;
+  document.body.appendChild(container);
+  document.body.style.backgroundColor = "#13141a";
+  document.body.style.margin = "0";
+  document.body.style.padding = "20px";
   
+  // Adicionar Font Awesome
+  const fontAwesome = document.createElement('link');
+  fontAwesome.rel = 'stylesheet';
+  fontAwesome.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css';
+  document.head.appendChild(fontAwesome);
+
+  // Adicionar estilos dinâmicos
+  const style = document.createElement('style');
+  style.textContent = `
+    .call { 
+      background: linear-gradient(135deg, #00b894, #00cec9) !important; 
+      color: white !important;
+      box-shadow: 0 4px 20px rgba(0, 184, 148, 0.3);
+    }
+    .put { 
+      background: linear-gradient(135deg, #ff7675, #d63031) !important; 
+      color: white !important;
+      box-shadow: 0 4px 20px rgba(255, 118, 117, 0.3);
+    }
+    .esperar { 
+      background: linear-gradient(135deg, #0984e3, #6c5ce7) !important; 
+      color: white !important;
+      box-shadow: 0 4px 20px rgba(108, 92, 231, 0.3);
+    }
+    .erro { 
+      background: #fdcb6e !important; 
+      color: #2d3436 !important;
+    }
+    body {
+      transition: background 0.5s ease;
+    }
+    #comando {
+      transition: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+    }
+  `;
+  document.head.appendChild(style);
+
   // Iniciar processos
   setInterval(atualizarRelogio, 1000);
   sincronizarTimer();
